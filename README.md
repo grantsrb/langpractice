@@ -1,7 +1,9 @@
-# Supervised Gym
+# Language as a Tool or a Practice
 
 ## Description
-This project provides a set of tools to train a model on a sequential, action based environment. You must provide an oracle AI for the goal actions. The project then collects data from the environment using the oracle and trains a model on the oracle data.
+This project seeks to disentangle the reason why language is correlated with some cognitive tasks. Specifically, this project seeks to determine if language is used as a tool for counting or it acts as a practice for learning counting concepts.
+
+The experiment first creates two models. One is pretrained to use language to count objects. The other is pretrained on a task that requires counting but only uses a trinary signal of more, less, or equal to as its output. The models are then transferred to tasks that require manipulating an environment based on a visual count. If the two models perform equally, we can attribute the cognitive abilities associated with language to the practice that comes with learning a language. If the lingual model performs better, however, we can attribute the improvements to the model using language as a tool.
 
 ## How to Use this Repo
 ### Training
