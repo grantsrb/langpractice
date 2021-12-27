@@ -1,8 +1,8 @@
 import torch
 import numpy as np
-import supervised_gym as sg
+import langpractice as lp
 import sys
-from supervised_gym.models import *
+from langpractice.models import *
 import matplotlib.pyplot as plt
 
 """
@@ -13,7 +13,7 @@ $ python3 watch_model.py exp_name/model_folder/
 """
 if __name__ == "__main__":
     model_folder = sys.argv[1]
-    checkpt = sg.utils.save_io.load_checkpoint(
+    checkpt = lp.utils.save_io.load_checkpoint(
         model_folder,
         use_best=False
     )
@@ -23,7 +23,7 @@ if __name__ == "__main__":
     model.load_state_dict(checkpt["state_dict"])
     model.eval()
     model.reset()
-    val_runner = sg.experience.ValidationRunner(hyps)
+    val_runner = lp.experience.ValidationRunner(hyps)
     eval_eps = 10
     data = val_runner.rollout(
         model,

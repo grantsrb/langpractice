@@ -1,7 +1,7 @@
-from supervised_gym.experience import ExperienceReplay, DataCollector
-from supervised_gym.models import * # SimpleCNN, SimpleLSTM
-from supervised_gym.recorders import Recorder
-from supervised_gym.utils.utils import try_key
+from langpractice.experience import ExperienceReplay, DataCollector
+from langpractice.models import * # SimpleCNN, SimpleLSTM
+from langpractice.recorders import Recorder
+from langpractice.utils.utils import try_key
 
 from torch.optim import Adam, RMSprop
 from torch.optim.lr_scheduler import ReduceLROnPlateau

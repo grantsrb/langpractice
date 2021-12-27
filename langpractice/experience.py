@@ -2,9 +2,9 @@ import torch
 import torch.nn.functional as F
 import torch.multiprocessing as mp
 import numpy as np
-from supervised_gym.envs import SequentialEnvironment
-from supervised_gym.oracles import *
-from supervised_gym.utils.utils import try_key, sample_action
+from langpractice.envs import SequentialEnvironment
+from langpractice.oracles import *
+from langpractice.utils.utils import try_key, sample_action
 from collections import deque
 
 if torch.cuda.is_available():

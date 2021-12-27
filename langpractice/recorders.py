@@ -6,9 +6,9 @@ import torch
 import numpy as np
 import pandas as pd
 
-from supervised_gym.utils.save_io import save_checkpt
-from supervised_gym.utils.utils import try_key
-from supervised_gym.utils.training import get_exp_num, record_session, get_save_folder
+from langpractice.utils.save_io import save_checkpt
+from langpractice.utils.utils import try_key
+from langpractice.utils.training import get_exp_num, record_session, get_save_folder
 
 class Recorder:
     """

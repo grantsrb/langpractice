@@ -1,6 +1,6 @@
 import torch
 import pickle
-import supervised_gym.utils.utils as utils
+import langpractice.utils.utils as utils
 import os
 
 BEST_CHECKPT_NAME = "best_checkpt_0.pt.best"

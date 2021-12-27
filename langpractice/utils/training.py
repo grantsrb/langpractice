@@ -13,8 +13,8 @@ from queue import Queue
 from collections import deque
 import psutil
 import json
-import supervised_gym.utils.save_io as io
-import supervised_gym.utils.utils as utils
+import langpractice.utils.save_io as io
+import langpractice.utils.utils as utils
 import select
 import shutil
 import os

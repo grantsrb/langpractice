@@ -4,9 +4,9 @@ import gym
 import gordongames
 import gym_snake
 import numpy as np
-from supervised_gym.preprocessors import *
+from langpractice.preprocessors import *
 import time
-from supervised_gym.utils.utils import try_key
+from langpractice.utils.utils import try_key
 import torch.nn.functional as F
 from mlagents_envs.environment import UnityEnvironment
 from gym_unity.envs import UnityToGymWrapper

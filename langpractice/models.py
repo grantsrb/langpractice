@@ -1,8 +1,8 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from supervised_gym.utils.torch_modules import Flatten, Reshape, GaussianNoise
-from supervised_gym.utils.utils import update_shape
+from langpractice.utils.torch_modules import Flatten, Reshape, GaussianNoise
+from langpractice.utils.utils import update_shape
 # update_shape(shape, kernel=3, padding=0, stride=1, op="conv"):
 
 class Model(torch.nn.Module):
