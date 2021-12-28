@@ -124,7 +124,7 @@ class ExperienceReplay(torch.utils.data.Dataset):
                 )).long(),
         }
         if "gordongames" in env_type:
-            keys = ["n_targs", "n_items", "n_aligned"]
+            keys = ["n_targs", "n_items", "n_aligned", "grabs"]
             for key in keys:
                 self.shared_exp[key] = torch.zeros((
                     self.batch_size,
@@ -155,6 +155,7 @@ class ExperienceReplay(torch.utils.data.Dataset):
         data = dict()
         for key in self.shared_exp.keys():
             data[key] = self.shared_exp[key][:, idx: idx+self.seq_len]
+        data["drops"] = self.get_drops(data["grabs"])
         return data
 
     def __iter__(self):
@@ -189,6 +190,33 @@ class ExperienceReplay(torch.utils.data.Dataset):
             return self.__getitem__(idx)
         else:
             raise StopIteration
+
+    @staticmethod
+    def get_drops(grabs):
+        """
+        Returns a tensor denoting steps in which the agent dropped an
+        item. The tensor returned is actually a LongTensor, not a Bool
+        Tensor. Assumes 1 means PILE, and 2 means BUTTON and 3 means
+        ITEM.
+
+        Args:
+            grabs: Long Tensor (N,)
+                a tensor denoting the item grabbed by the agent at
+                each timestep. Assumes 1 means PILE, and 2 means BUTTON
+                and 3 means ITEM
+        Returns:
+            drops: Long Tensor (N,)
+                a tensor denoting if the agent dropped an item with a 1,
+                0 otherwise.
+        """
+        drops = grabs.clone()
+        drops[grabs<3] = 0
+        drops[grabs>=3] = 1
+        drops[1:] = drops[1:] + drops[:-1]
+        drops[drops!=1] = 0
+        drops[grabs>=3] = 0
+        drops[0] = 0
+        return drops
 
 class DataCollector:
     """
@@ -295,6 +323,8 @@ class Runner:
                     "n_aligned": Collects the number of items aligned
                                with targets over the course of the
                                episode if using gordongames variant
+                    "grabs": Collects information into whether the agent
+                            is grabbing or not.
             gate_q: multiprocessing Queue.
                 Allows main process to control when rollouts should be
                 collected.
@@ -362,6 +392,9 @@ class Runner:
                 self.shared_exp["n_targs"][idx,i] = info["n_targs"]
                 self.shared_exp["n_items"][idx,i] = info["n_items"]
                 self.shared_exp["n_aligned"][idx,i] = info["n_aligned"]
+                # tracks what object the player is grabbing. 0 means
+                # the agent is not grabbing anything
+                self.shared_exp["grabs"][idx,i] = info["grab"]
             state = next_state(
                 self.env,
                 self.obs_deque,
@@ -455,6 +488,7 @@ class ValidationRunner(Runner):
             data["n_targs"] = []
             data["n_items"] = []
             data["n_aligned"] = []
+            data["grabs"] = []
         model.eval()
         state = self.state_bookmark
         if self.h_bookmark is None:
@@ -491,6 +525,7 @@ class ValidationRunner(Runner):
                     data["n_targs"].append(info["n_targs"])
                     data["n_items"].append(info["n_items"])
                     data["n_aligned"].append(info["n_aligned"])
+                    data["grabs"].append(info["grab"])
                 if self.hyps["render"]: self.env.render()
                 loop_count += int(n_tsteps is not None or done)
         self.state_bookmark = state
