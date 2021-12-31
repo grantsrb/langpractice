@@ -16,8 +16,7 @@ if torch.cuda.is_available():
 else:
     DEVICE = torch.device("cpu")
 
-
-def train(rank, hyps, verbose=False):
+def train(rank, hyps, verbose=True):
     """
     This is the main training function. Argue a set of hyperparameters
     and this function will train a model to solve an openai gym task
@@ -42,30 +41,78 @@ def train(rank, hyps, verbose=False):
     data_collector = DataCollector(hyps)
     data_collector.dispatch_runners()
     # Initialize model
-    model = globals()[hyps["model_type"]](**hyps)
-    model.to(DEVICE)
+    model = make_model(hyps)
     # Record experiment settings
     recorder = Recorder(hyps, model)
     # initialize trainer
     trainer = Trainer(hyps, model, recorder, verbose=verbose)
     # Loop training
-    n_epochs = hyps["n_epochs"] if hyps["exp_name"] != "test" else 2
+    n_epochs = hyps["lang_epochs"] if hyps["exp_name"] != "test" else 2
+    training_loop(
+        n_epochs,
+        data_collector,
+        trainer,
+        model,
+        verbose=verbose
+    )
+    trainer.phase = hyps["second_phase"]
+    n_epochs = hyps["actn_epochs"] if hyps["exp_name"] != "test" else 2
+    s = "\n\nBeginning Second Phase " + str(trainer.phase)
+    recorder.write_to_log(s)
+    print(s)
+    training_loop(
+        n_epochs,
+        data_collector,
+        trainer,
+        model,
+        verbose=verbose
+    )
+    data_collector.terminate_runners()
+    trainer.end_training()
+
+def make_model(hyps):
+    """
+    Makes the model. The model type specified in the hyperparams must
+    be imported into the global scope.
+
+    Args:
+        hyps: dict
+            dict of hyperparameters. See `README.md` for details
+    """
+    return globals()[hyps["model_type"]](**hyps).to(DEVICE)
+
+def training_loop(n_epochs,data_collector,trainer,model,verbose=True):
+    """
+    The epoch level training loop.
+
+    Args:
+        n_epochs: int
+            the number of epochs to train for
+        data_collector: DataCollector
+        trainer: Trainer
+        model: Model
+    """
+    if trainer.hyps["exp_name"] == "test":
+        trainer.hyps["n_val_samples"] = 1
     for epoch in range(n_epochs):
         if verbose:
             print()
-            print("Starting Epoch", epoch, "--", hyps["save_folder"])
+            print("Phase:",
+                trainer.phase,
+                "-- Epoch",
+                epoch,
+                "--",
+                trainer.hyps["save_folder"]
+            )
         # Run environments, automatically fills experience replay's
         # shared_exp tensors
         data_collector.await_runners()
         trainer.train(model, data_collector.exp_replay)
         data_collector.dispatch_runners()
-        if verbose:
-            print("\nValidating")
-        for val_sample in tqdm(range(hyps["n_val_samples"])):
+        if verbose: print("\nValidating")
+        for val_sample in tqdm(range(trainer.hyps["n_val_samples"])):
             trainer.validate(epoch, model, data_collector)
         trainer.end_epoch(epoch)
-    data_collector.terminate_runners()
-    trainer.end_training()
 
 class Trainer:
     """
@@ -88,6 +135,7 @@ class Trainer:
         self.model = model
         self.recorder = recorder
         self.verbose = verbose
+        self.phase = 0 # used to determine type of training
         self.optim = self.get_optimizer(
             self.model,
             self.hyps["optim_type"],
@@ -157,26 +205,34 @@ class Trainer:
         for i,data in enumerate(data_iter):
             iter_start = time.time()
             self.optim.zero_grad()
-            obs =   data['obs']
-            actns = data['actns'].to(DEVICE)
+            obs =   data["obs"]
+            actns = data["actns"]
             dones = data["dones"]
+            drops = data["drops"]
+            n_items = data["n_items"]
+            n_targs = data["n_targs"]
+            labels = self.get_lang_labels(n_items, n_targs)
+
             self.reset_model(model, len(obs))
             # model uses dones if it is recurrent
-            logits = model(obs.to(DEVICE), dones.to(DEVICE)) 
-            loss = self.loss_fxn(
-                logits.reshape(-1, logits.shape[-1]),
-                actns.flatten()
+            logits, lang = model(
+                obs.to(DEVICE),
+                dones.to(DEVICE)
+            )
+
+            loss,accs = self.get_loss_and_accs(
+                logits=logits.reshape(-1, logits.shape[-1]),
+                lang=lang.reshape(-1, lang.shape[-1]),
+                actns=actns.flatten(),
+                labels=labels.flatten(),
+                drops=drops.flatten(),
+                n_targs=n_targs.flatten(),
+                prepender="train"
             )
             # Backprop and update
             loss.backward()
             self.optim.step()
             # Calc acc
-            accs = self.calc_accs( # accs is a dict of floats
-                logits=logits,
-                targs=actns,
-                categories=data["n_targs"],
-                prepender="train"
-            )
             # Record metrics
             metrics = {
                 "train_loss": loss.item(),
@@ -190,6 +246,94 @@ class Trainer:
                 iter_start
             )
             if self.hyps["exp_name"] == "test" and i >= 2: break
+
+    def get_lang_labels(self, n_items, n_targs):
+        """
+        Determines the language labels based on the type of training.
+
+        Args:
+            n_items: torch Tensor (N,)
+                the count of the items on the board
+            n_targs: torch Tensor (N,)
+                the count of the targs on the board
+        """
+        labels = n_items.clone()
+        if not self.hyps["use_count_words"]:
+            labels[n_items<n_targs] = 0
+            labels[n_items==n_targs] = 1
+            labels[n_items>n_targs] = 2
+        return labels
+
+    def get_loss_and_accs(self,
+                          logits,
+                          lang,
+                          actns,
+                          labels,
+                          drops,
+                          n_targs,
+                          prepender):
+        """
+        Calculates the loss and accuracies depending on the phase of
+        the training.
+
+            Phase 0: language loss when agent drops an item
+            Phase 1: action loss at all steps in rollout
+            Phase 2: lang and action loss at all steps in rollout
+
+        Args:
+            logits: torch FloatTensor (N, A)
+                action predictions
+            lang: torch FloatTensor (N, L)
+                language predictions
+            actns: torch LongTensor (N,)
+                action labels
+            labels: torch LongTensor (N,)
+                language labels
+            drops: torch LongTensor (N,)
+                1s denote steps in which the agent dropped an item, 0s
+                denote all other steps
+            n_targs: torch LongTensor (N,)
+                the number of target objects on the grid at this step
+                of the episode
+        Returns:
+            loss: torch float tensor (1,)
+                the appropriate loss for the phase
+            accs: dict
+                keys: str
+                vals: float
+                    the appropriate label accuracies depending on the
+                    phase
+        """
+        # Phase 0: language labels when agent drops an item
+        # Phase 1: action labels at all steps in rollout
+        # Phase 2: lang and action labels at all steps in rollout
+        loss = 0
+        if self.phase == 0:
+            idxs = drops==1
+            lang = lang[idxs]
+            labels = labels[idxs]
+            n_targs = n_targs[idxs]
+        if self.phase == 0 or self.phase == 2:
+            labels = labels.to(DEVICE)
+            loss += self.loss_fxn(lang, labels)
+            with torch.no_grad():
+                accs = self.calc_accs( # accs is a dict of floats
+                    logits=lang,
+                    targs=labels,
+                    categories=n_targs,
+                    prepender=prepender
+                )
+        if self.phase == 1 or self.phase == 2:
+            actns = actns.to(DEVICE)
+            loss += self.loss_fxn(logits, actns)
+            with torch.no_grad():
+                accs = self.calc_accs( # accs is a dict of floats
+                    logits=logits,
+                    targs=actns,
+                    categories=n_targs,
+                    prepender=prepender
+                )
+        return loss, accs
 
     def calc_accs(self, logits, targs, categories=None, prepender=""):
         """
@@ -281,20 +425,25 @@ class Trainer:
             # Returned tensors are mainly of shape (n_eval_steps,)
             model.reset(batch_size=1)
             eval_data = data_collector.val_runner.rollout(
+                self.phase,
                 model,
                 n_tsteps=self.hyps["n_eval_steps"],
                 n_eps=self.hyps["n_eval_eps"]
             )
-            # Calc Loss
-            logits = eval_data["logits"] # already CUDA (N, K)
-            targs = eval_data["targs"].to(DEVICE) # (N,)
-            n_targs = eval_data["n_targs"] # (N,) or None
-            loss = self.loss_fxn(logits, targs)
-            # Calc Acc
-            accs = self.calc_accs( # accs is a dict
-                logits,
-                targs,
-                n_targs,
+            lang_labels = self.get_lang_labels(
+                eval_data["n_items"],
+                eval_data["n_targs"]
+            )
+            drops = data_collector.exp_replay.get_drops(
+                eval_data["grabs"]
+            )
+            loss, accs = self.get_loss_and_accs(
+                logits=eval_data["actn_preds"],
+                lang=eval_data["lang_preds"],
+                actns=eval_data["actn_targs"],
+                labels=lang_labels,
+                drops=drops,
+                n_targs=eval_data["n_targs"],
                 prepender="val"
             )
         eval_eps = self.hyps["n_eval_eps"]
@@ -307,21 +456,20 @@ class Trainer:
             **accs
         }
         # Extra metrics if using gordongames variant
-        if "gordongames" in self.hyps["env_type"]:
-            keys = ["n_items", "n_targs", "n_aligned"]
-            dones = eval_data["dones"].reshape(-1)
-            inpts = {key: eval_data[key].reshape(-1) for key in keys}
-            inpts = {key: val[dones==1] for key,val in inpts.items()}
-            targ_accs = self.calc_targ_accs(
-                **inpts,
-                prepender="val"
-            )
-            metrics = {**metrics, **targ_accs}
-            inpts = {k:v.cpu().data.numpy() for k,v in inpts.items()}
-            inpts["epoch"] = [
-                epoch for i in range(len(inpts["n_items"]))
-            ]
-            self.recorder.to_df(**inpts)
+        keys = ["n_items", "n_targs", "n_aligned"]
+        dones = eval_data["dones"].reshape(-1)
+        inpts = {key: eval_data[key].reshape(-1) for key in keys}
+        inpts = {key: val[dones==1] for key,val in inpts.items()}
+        targ_accs = self.calc_targ_accs(
+            **inpts,
+            prepender="val"
+        )
+        metrics = {**metrics, **targ_accs}
+        inpts = {k:v.cpu().data.numpy() for k,v in inpts.items()}
+        inpts["epoch"] = [
+            epoch for i in range(len(inpts["n_items"]))
+        ]
+        self.recorder.to_df(**inpts)
         self.recorder.track_loop(metrics)
 
     def calc_targ_accs(self,
@@ -411,6 +559,7 @@ class Trainer:
                 the epoch that has just finished.
         """
         self.recorder.save_epoch_stats(
+            self.phase,
             epoch,
             self.model,
             self.optim,

@@ -95,13 +95,15 @@ class Recorder:
             stats[key + "_min"] = np.min(self.metrics[key])
         return stats
 
-    def save_epoch_stats(self, epoch, model, optim, verbose=True):
+    def save_epoch_stats(self, phase, epoch, model, optim, verbose=True):
         """
         Saves a checkpoint file to the model folder. The checkpoint
         file includes the statistics of the epoch as well as a state
         dict of both the model and the optimizer.
 
         Args:
+            phase: int
+                the phase of the training
             epoch: int
                 the epoch count
             model: torch Module
@@ -113,10 +115,12 @@ class Recorder:
         """
         save_name = "checkpt"
         save_name = os.path.join(self.hyps['save_folder'], save_name)
-        save_dict = dict()
-        save_dict["stats"] = self.accumulate_stats()
-        save_dict["state_dict"] = model.state_dict()
-        save_dict["optim_dict"] = optim.state_dict()
+        save_dict = {
+            "phase": phase,
+            "stats": self.accumulate_stats(),
+            "state_dict": model.state_dict(),
+            "optim_dict": optim.state_dict(),
+        }
         key = self.hyps["best_by_key"]
         if key not in save_dict["stats"]: key = "val_loss_avg"
         if "loss" in key:
@@ -133,6 +137,7 @@ class Recorder:
             best=is_best
         )
         string = self.make_log_string(save_dict["stats"])
+        string = "\nPhase: "+str(phase)+string
         if verbose: print(string)
         self.write_to_log(string + "\n\n")
 

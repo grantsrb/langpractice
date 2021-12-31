@@ -123,13 +123,12 @@ class ExperienceReplay(torch.utils.data.Dataset):
                     self.exp_len
                 )).long(),
         }
-        if "gordongames" in env_type:
-            keys = ["n_targs", "n_items", "n_aligned", "grabs"]
-            for key in keys:
-                self.shared_exp[key] = torch.zeros((
-                    self.batch_size,
-                    self.exp_len
-                )).long()
+        keys = ["n_targs", "n_items", "n_aligned", "grabs"]
+        for key in keys:
+            self.shared_exp[key] = torch.zeros((
+                self.batch_size,
+                self.exp_len
+            )).long()
         if self.share_tensors:
             for key in self.shared_exp.keys():
                 self.shared_exp[key].share_memory_()
@@ -209,9 +208,13 @@ class ExperienceReplay(torch.utils.data.Dataset):
                 a tensor denoting if the agent dropped an item with a 1,
                 0 otherwise.
         """
-        drops = grabs.clone()
+        if type(grabs) == torch.Tensor:
+            drops = grabs.clone()
+        else:
+            drops = grabs.copy()
         drops[grabs<3] = 0
         drops[grabs>=3] = 1
+        # Looks for situations where the sum drops off to 0
         drops[1:] = drops[1:] + drops[:-1]
         drops[drops!=1] = 0
         drops[grabs>=3] = 0
@@ -250,6 +253,9 @@ class DataCollector:
         self.obs_shape = self.val_runner.env.shape
         self.hyps['inpt_shape'] = self.val_runner.state_bookmark.shape
         self.hyps["actn_size"] = self.val_runner.env.actn_size
+        self.hyps["lang_size"] = 2*self.hyps['targ_range'][1]
+        if not self.hyps["use_count_words"]:
+            self.hyps["lang_size"] = 3
         # Create gating mechanisms
         self.gate_q = mp.Queue(self.batch_size)
         self.stop_q = mp.Queue(self.batch_size)
@@ -417,8 +423,10 @@ class ValidationRunner(Runner):
                     "env_type": type of gym environment to be interacted
                                 with. Follows OpenAI's gym api.
         """
-
-        self.hyps = hyps
+        self.hyps = {**hyps}
+        trange = self.hyps["targ_range"]
+        self.hyps["targ_range"] = (trange[0], int(2*trange[1]/3))
+        print("validation runner target range:",self.hyps["targ_range"])
         self.obs_deque = deque(maxlen=hyps['n_frame_stack'])
         self.env = SequentialEnvironment(**self.hyps)
         state = next_state(
@@ -432,7 +440,7 @@ class ValidationRunner(Runner):
         self.ep_rew = 0
         self.oracle = globals()[self.hyps["oracle_type"]](**self.hyps)
 
-    def rollout(self, model, n_tsteps, n_eps=None):
+    def rollout(self, phase, model, n_tsteps, n_eps=None):
         """
         rollout handles the actual rollout of the environment. It runs
         for n steps in the game using the model to determine actions
@@ -440,6 +448,8 @@ class ValidationRunner(Runner):
         what the oracle would have done.
 
         Args:
+            phase: int
+                the phase of the training
             model: torch Module
             n_tsteps: int or None
                 number of steps to rollout. must not be None if n_eps
@@ -451,10 +461,13 @@ class ValidationRunner(Runner):
             data: dict
                 keys: str
                 vals: shared torch tensors
-                    logits: float tensor (N, K)
+                    actn_preds: float tensor (N, K)
                         Collects the predictions of the model for each
                         timestep t
-                    targs: long tensor (N,)
+                    lang_preds: float tensor (N, K)
+                        Collects the predictions of the model for each
+                        timestep t
+                    actn_targs: long tensor (N,)
                         Collects the oracle actions at each timestep t
                     rews: float tensor (N,)
                         Collects the reward at each timestep t
@@ -476,19 +489,16 @@ class ValidationRunner(Runner):
         """
         data = {
             "states": [],
-            "logits": [],
-            "targs": [],
+            "actn_preds": [],
+            "lang_preds": [],
+            "actn_targs": [],
             "rews":  [],
             "dones": [],
-            "n_targs": None,
-            "n_items": None,
-            "n_aligned": None,
+            "n_targs": [],
+            "n_items": [],
+            "n_aligned": [],
+            "grabs": [],
         }
-        if "gordongames" in self.hyps['env_type']:
-            data["n_targs"] = []
-            data["n_items"] = []
-            data["n_aligned"] = []
-            data["grabs"] = []
         model.eval()
         state = self.state_bookmark
         if self.h_bookmark is None:
@@ -504,13 +514,16 @@ class ValidationRunner(Runner):
                 t_state = torch.FloatTensor(state) # (C, H, W)
                 data["states"].append(t_state)
                 # Get action prediction
-                logits = model.step(t_state[None].to(DEVICE))
-                data["logits"].append(logits)
-                actn = sample_action(F.softmax(logits, dim=-1)).item()
+                inpt = t_state[None].to(DEVICE)
+                actn_pred, lang_pred = model.step(inpt)
+                data["actn_preds"].append(actn_pred)
+                data["lang_preds"].append(lang_pred)
+                actn = sample_action(F.softmax(actn_pred, dim=-1)).item()
                 # get target action
                 targ = self.oracle(self.env)
-                data["targs"].append(targ)
-                # Step the environment
+                data["actn_targs"].append(targ)
+                # Step the environment (use oracle if phase 0)
+                if phase == 0: actn = targ
                 obs, rew, done, info = self.env.step(actn)
                 state = next_state(
                     self.env,
@@ -521,22 +534,22 @@ class ValidationRunner(Runner):
                 if done: model.reset(1)
                 data["dones"].append(int(done))
                 data["rews"].append(rew)
-                if "n_targs" in info and data["n_targs"] is not None:
-                    data["n_targs"].append(info["n_targs"])
-                    data["n_items"].append(info["n_items"])
-                    data["n_aligned"].append(info["n_aligned"])
-                    data["grabs"].append(info["grab"])
+                data["n_targs"].append(info["n_targs"])
+                data["n_items"].append(info["n_items"])
+                data["n_aligned"].append(info["n_aligned"])
+                data["grabs"].append(info["grab"])
                 if self.hyps["render"]: self.env.render()
                 loop_count += int(n_tsteps is not None or done)
         self.state_bookmark = state
         self.h_bookmark = (model.h.data, model.c.data)
-        data["logits"] = torch.cat(data["logits"], dim=0)
-        data["targs"] = torch.LongTensor(data["targs"])
+        data["actn_preds"] = torch.cat(data["actn_preds"], dim=0)
+        data["lang_preds"] = torch.cat(data["lang_preds"], dim=0)
+        data["actn_targs"] = torch.LongTensor(data["actn_targs"])
         data["dones"] = torch.LongTensor(data["dones"])
+        data["grabs"] = torch.LongTensor(data["grabs"])
         data["rews"] = torch.FloatTensor(data["rews"])
-        if data["n_targs"] is not None:
-            data["n_targs"] = torch.LongTensor(data["n_targs"])
-            data["n_items"] = torch.LongTensor(data["n_items"])
-            data["n_aligned"] = torch.LongTensor(data["n_aligned"])
+        data["n_targs"] = torch.LongTensor(data["n_targs"])
+        data["n_items"] = torch.LongTensor(data["n_items"])
+        data["n_aligned"] = torch.LongTensor(data["n_aligned"])
         return data
 

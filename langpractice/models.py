@@ -16,6 +16,7 @@ class Model(torch.nn.Module):
     def __init__(self,
         inpt_shape,
         actn_size,
+        lang_size,
         h_size=128,
         bnorm=False,
         conv_noise=0,
@@ -28,6 +29,8 @@ class Model(torch.nn.Module):
                 the shape of the input
             actn_size: int
                 the number of potential actions
+            lang_size: int
+                the number of potential words
             h_size: int
                 the size of the hidden dimension for the dense layers
             bnorm: bool
@@ -36,6 +39,7 @@ class Model(torch.nn.Module):
         super().__init__()
         self.inpt_shape = inpt_shape
         self.actn_size = actn_size
+        self.lang_size = lang_size
         self.h_size = h_size
         self.bnorm = bnorm
         self.conv_noise = conv_noise
@@ -85,7 +89,8 @@ class Model(torch.nn.Module):
         Args:
             x: torch FloatTensor (B, C, H, W)
         Returns:
-            pred: torch Float Tensor (B, K)
+            actn: torch Float Tensor (B, K)
+            lang: torch Float Tensor (B, L)
         """
         pass
 
@@ -96,7 +101,8 @@ class Model(torch.nn.Module):
         Args:
             x: torch FloatTensor (B, S, C, H, W)
         Returns:
-            pred: torch Float Tensor (B, S, K)
+            actn: torch Float Tensor (B, S, K)
+            lang: torch Float Tensor (B, S, L)
         """
         pass
 
@@ -113,6 +119,7 @@ class RandomModel(Model):
         if len(x.shape) == 4:
             return self.step(x)
         else:
+            # Action
             actn = torch.zeros(*x.shape[:2], self.actn_size).float()
             rand = torch.randint(
                 low=0,
@@ -121,8 +128,20 @@ class RandomModel(Model):
             )
             actn = actn.reshape(int(np.prod(x.shape[:2])), -1)
             actn[torch.arange(len(actn)).long(), rand] = 1
-            if x.is_cuda: actn.cuda()
-            return actn
+
+            # Language
+            lang = torch.zeros(*x.shape[:2], self.lang_size).float()
+            rand = torch.randint(
+                low=0,
+                high=self.lang_size,
+                size=(int(np.prod(x.shape[:2])),)
+            )
+            lang = lang.reshape(int(np.prod(x.shape[:2])), -1)
+            lang[torch.arange(len(lang)).long(), rand] = 1
+            if x.is_cuda:
+                actn.cuda()
+                lang.cuda()
+            return actn, lang
 
     def step(self, x):
         """
@@ -136,8 +155,17 @@ class RandomModel(Model):
         )
         actn = torch.zeros(len(x), self.actn_size).float()
         actn[torch.arange(len(x)).long(), rand] = 1
-        if x.is_cuda: actn.cuda()
-        return actn
+        rand = torch.randint(
+            low=0,
+            high=self.lang_size,
+            size=(len(x),)
+        )
+        lang = torch.zeros(len(x), self.lang_size).float()
+        lang[torch.arange(len(x)).long(), rand] = 1
+        if x.is_cuda:
+            actn.cuda()
+            lang.cuda()
+        return actn, lang
 
 class SimpleCNN(Model):
     """
@@ -190,9 +218,9 @@ class SimpleCNN(Model):
             )
             self.shapes.append(shape)
         self.features = nn.Sequential(*modules)
-
-        # Make Output MLP
         self.flat_size = int(np.prod(shape))
+
+        # Make Action MLP
         modules = [
             Flatten(),
             nn.Linear(self.flat_size, self.h_size),
@@ -201,14 +229,22 @@ class SimpleCNN(Model):
         ]
         if self.bnorm:
             modules.append(nn.BatchNorm1d(self.h_size))
-        self.dense = nn.Sequential(
+        self.actn_dense = nn.Sequential(
             *modules,
             nn.Linear(self.h_size, self.actn_size)
         )
-        # Full Model All Together
-        self.full_model = nn.Sequential(
-            self.features,
-            self.dense
+
+        # Make Language MLP
+        modules = [
+            Flatten(),
+            nn.Linear(self.flat_size, self.h_size),
+            nn.ReLU()
+        ]
+        if self.bnorm:
+            modules.append(nn.BatchNorm1d(self.h_size))
+        self.lang_dense = nn.Sequential(
+            *modules,
+            nn.Linear(self.h_size, self.lang_size)
         )
 
     def step(self, x, *args, **kwargs):
@@ -220,7 +256,10 @@ class SimpleCNN(Model):
         Returns:
             pred: torch Float Tensor (B, K)
         """
-        return self.full_model(x)
+        fx = self.features(x)
+        actn = self.actn_dense(fx)
+        lang = self.lang_dense(fx)
+        return actn, lang
 
     def forward(self, x, *args, **kwargs):
         """
@@ -231,8 +270,8 @@ class SimpleCNN(Model):
                 N is equivalent to self.actn_size
         """
         b,s = x.shape[:2]
-        fx = self.full_model(x.reshape(-1, *x.shape[2:]))
-        return fx.reshape(b,s,-1)
+        actn, lang = self.step(x.reshape(-1, *x.shape[2:]))
+        return actn.reshape(b,s,-1), lang.reshape(b,s,-1)
 
 class SimpleLSTM(Model):
     """
@@ -240,7 +279,8 @@ class SimpleLSTM(Model):
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        assert self.bnorm == False, "bnorm must be False. it does not work with Recurrence!"
+        assert self.bnorm == False,\
+            "bnorm must be False. it does not work with Recurrence!"
 
         # Convs
         cnn = SimpleCNN(*args, **kwargs)
@@ -251,11 +291,19 @@ class SimpleLSTM(Model):
         self.flat_size = cnn.flat_size
         self.lstm = nn.LSTMCell(self.flat_size, self.h_size)
 
-        # Dense
-        self.dense = nn.Sequential(
+        # Action Dense
+        self.actn_dense = nn.Sequential(
             GaussianNoise(self.dense_noise),
             nn.ReLU(),
             nn.Linear(self.h_size, self.actn_size),
+        )
+
+        # Lang Dense
+        self.lang_dense = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(self.h_size, 2*self.h_size),
+            nn.ReLU(),
+            nn.Linear(2*self.h_size, self.lang_size),
         )
 
         # Memory
@@ -332,7 +380,7 @@ class SimpleLSTM(Model):
         fx = self.features(x)
         fx = fx.reshape(len(x), -1) # (B, N)
         self.h, self.c = self.lstm(fx, (self.h, self.c))
-        return self.dense(self.h)
+        return self.actn_dense(self.h), self.lang_dense(self.h)
 
     def forward(self, x, dones, *args, **kwargs):
         """
@@ -346,18 +394,20 @@ class SimpleLSTM(Model):
                 N is equivalent to self.actn_size
         """
         seq_len = x.shape[1]
-        outputs = []
+        actns = []
+        langs = []
         self.prev_hs = []
         self.prev_cs = []
         if x.is_cuda:
             dones = dones.to(x.get_device())
         for s in range(seq_len):
-            preds = self.step(x[:,s])
-            outputs.append(preds.unsqueeze(1))
+            actn, lang = self.step(x[:,s])
+            actns.append(actn.unsqueeze(1))
+            langs.append(lang.unsqueeze(1))
             self.h, self.c = self.partial_reset(dones[:,s])
             self.prev_hs.append(self.h.detach().data)
             self.prev_cs.append(self.c.detach().data)
-        return torch.cat(outputs, dim=1)
+        return torch.cat(actns, dim=1), torch.cat(langs, dim=1)
 
 
 
