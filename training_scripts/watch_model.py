@@ -26,7 +26,8 @@ if __name__ == "__main__":
     val_runner = lp.experience.ValidationRunner(hyps)
     eval_eps = 10
     data = val_runner.rollout(
-        model,
+        phase=2,
+        model=model,
         n_tsteps=1000
     )
     #for state, actn in zip(data["states"], data["logits"]):
