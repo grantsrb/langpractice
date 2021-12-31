@@ -67,8 +67,20 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
     "runner_seed_offset": int
         An offset for the random seed for each of the parallel
         environments
-    "n_epochs": int
-        The number of training epochs
+    "lang_epochs": int
+        The number of training epochs for the language training phase
+    "actn_epochs": int
+        The number of training epochs for the action training phase
+
+    "use_count_words": bool
+        if true, the model learns to count out the items using number
+        words. If false, the model instead learns to count by issuing
+        a less-than, equal-to, or greater-than prediction.
+    "second_phase": int (1 or 2)
+        this determines if the model will be trained with language
+        during the second phase of the training. If 1, the model is
+        trained with actions only, if 2, the model is trained with
+        both language and actions during the second phase.
 
     "model_type": str
         the name of the model class that you wish to use for the
