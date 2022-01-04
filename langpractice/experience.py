@@ -424,8 +424,12 @@ class ValidationRunner(Runner):
                                 with. Follows OpenAI's gym api.
         """
         self.hyps = {**hyps}
-        trange = self.hyps["targ_range"]
-        self.hyps["targ_range"] = (trange[0], int(2*trange[1]/3))
+        print("train runner target range:", self.hyps["targ_range"])
+        self.hyps["targ_range"] = try_key(
+            self.hyps,
+            "val_targ_range",
+            self.hyps["targ_range"]
+        )
         print("validation runner target range:",self.hyps["targ_range"])
         self.obs_deque = deque(maxlen=hyps['n_frame_stack'])
         self.env = SequentialEnvironment(**self.hyps)
