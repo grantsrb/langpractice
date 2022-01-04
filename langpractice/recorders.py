@@ -137,7 +137,7 @@ class Recorder:
             best=is_best
         )
         string = self.make_log_string(save_dict["stats"])
-        string = "\nPhase: "+str(phase)+string
+        string = "\nEpoch: "+str(epoch) + " - Phase: "+str(phase) +string
         if verbose: print(string)
         self.write_to_log(string + "\n\n")
 
