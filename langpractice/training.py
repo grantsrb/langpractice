@@ -215,23 +215,30 @@ class Trainer:
 
             self.reset_model(model, len(obs))
             # model uses dones if it is recurrent
-            logits, lang = model(
+            t = time.time()
+            logits, langs = model(
                 obs.to(DEVICE),
                 dones.to(DEVICE)
             )
+            print("model time:", (time.time()-t))
 
+            t = time.time()
+            print("langs len", len(langs))
             loss,accs = self.get_loss_and_accs(
-                logits=logits.reshape(-1, logits.shape[-1]),
-                lang=lang.reshape(-1, lang.shape[-1]),
+                logits=logits,
+                langs=langs,
                 actns=actns.flatten(),
                 labels=labels.flatten(),
                 drops=drops.flatten(),
                 n_targs=n_targs.flatten(),
                 prepender="train"
             )
+            print("loss time:", (time.time()-t))
             # Backprop and update
+            t = time.time()
             loss.backward()
             self.optim.step()
+            print("backward and step:", (time.time()-t))
             # Calc acc
             # Record metrics
             metrics = {
@@ -266,7 +273,7 @@ class Trainer:
 
     def get_loss_and_accs(self,
                           logits,
-                          lang,
+                          langs,
                           actns,
                           labels,
                           drops,
@@ -281,10 +288,10 @@ class Trainer:
             Phase 2: lang and action loss at all steps in rollout
 
         Args:
-            logits: torch FloatTensor (N, A)
+            logits: torch FloatTensor (..., A)
                 action predictions
-            lang: torch FloatTensor (N, L)
-                language predictions
+            langs: sequence of torch FloatTensors [(N, L),(N, L),...]
+                a list of language predictions
             actns: torch LongTensor (N,)
                 action labels
             labels: torch LongTensor (N,)
@@ -304,28 +311,38 @@ class Trainer:
                     the appropriate label accuracies depending on the
                     phase
         """
+        logits = logits.reshape(-1, logits.shape[-1])
         # Phase 0: language labels when agent drops an item
         # Phase 1: action labels at all steps in rollout
         # Phase 2: lang and action labels at all steps in rollout
         loss = 0
-        if self.phase == 0:
-            idxs = drops==1
-            lang = lang[idxs]
-            labels = labels[idxs]
-            n_targs = n_targs[idxs]
-        if self.phase == 0 or self.phase == 2:
-            labels = labels.to(DEVICE)
-            loss += self.loss_fxn(lang, labels)
+        accs_array = []
+        for lang in langs:
+            print("lang loop")
+            lang = lang.reshape(-1, lang.shape[-1])
+            if self.phase == 0:
+                idxs = drops==1
+                lang = lang[idxs]
+                labels = labels[idxs]
+                n_targs = n_targs[idxs]
+            if self.phase == 0 or self.phase == 2:
+                labels = labels.to(DEVICE)
+                loss += self.loss_fxn(lang, labels)
+                with torch.no_grad():
+                    accs = self.calc_accs( # accs is a dict of floats
+                        logits=lang,
+                        targs=labels,
+                        categories=n_targs,
+                        prepender=prepender
+                    )
+                    accs_array.append(accs)
+        if len(langs) > 0:
             with torch.no_grad():
-                accs = self.calc_accs( # accs is a dict of floats
-                    logits=lang,
-                    targs=labels,
-                    categories=n_targs,
-                    prepender=prepender
-                )
+                accs = Trainer.avg_over_accs_array(accs_array)
         if self.phase == 1 or self.phase == 2:
             actns = actns.to(DEVICE)
-            loss += self.loss_fxn(logits, actns)
+            p = self.hyps["lang_p"]
+            loss = p*loss + (1-p)*self.loss_fxn(logits, actns)
             with torch.no_grad():
                 accs = self.calc_accs( # accs is a dict of floats
                     logits=logits,
@@ -334,6 +351,36 @@ class Trainer:
                     prepender=prepender
                 )
         return loss, accs
+
+    @staticmethod
+    def avg_over_accs_array(accs_array):
+        """
+        This is a helper function to average over the keys in an array
+        of dicts. The result is a dict with the same keys as every
+        dict in the argued array, but the values are averaged over each
+        dict within the argued array.
+
+        Args:
+            accs_array: list of dicts
+                this is a list of dicts. Each dict must consist of str
+                keys and float or int vals. Each dict must have the
+                same set of keys.
+        Returns:
+            avgs: dict
+                keys: str
+                    same keys as all dicts in accs_array
+                vals: float
+                    the average over all dicts in the accs array for
+                    the corresponding key
+        """
+        if len(accs_array) == 0: return dict()
+        avgs = {k: 0 for k in accs_array[0].keys()}
+        for k in avgs.keys():
+            avg = 0
+            for i in range(len(accs_array)):
+                avg += accs_array[i][k]
+            avgs[k] = avg/len(accs_array)
+        return avgs
 
     def calc_accs(self, logits, targs, categories=None, prepender=""):
         """
@@ -439,7 +486,7 @@ class Trainer:
             )
             loss, accs = self.get_loss_and_accs(
                 logits=eval_data["actn_preds"],
-                lang=eval_data["lang_preds"],
+                langs=eval_data["lang_preds"],
                 actns=eval_data["actn_targs"],
                 labels=lang_labels,
                 drops=drops,

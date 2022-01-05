@@ -253,8 +253,10 @@ class DataCollector:
         self.obs_shape = self.val_runner.env.shape
         self.hyps['inpt_shape'] = self.val_runner.state_bookmark.shape
         self.hyps["actn_size"] = self.val_runner.env.actn_size
-        self.hyps["lang_size"] = 2*self.hyps['targ_range'][1]
+        self.hyps["lang_size"] = self.hyps['targ_range'][1]+3
+        self.hyps["n_lang_denses"] = 1
         if not self.hyps["use_count_words"]:
+            self.hyps["n_lang_denses"] = self.hyps["lang_size"][1]//3
             self.hyps["lang_size"] = 3
         # Create gating mechanisms
         self.gate_q = mp.Queue(self.batch_size)
@@ -521,7 +523,14 @@ class ValidationRunner(Runner):
                 inpt = t_state[None].to(DEVICE)
                 actn_pred, lang_pred = model.step(inpt)
                 data["actn_preds"].append(actn_pred)
-                data["lang_preds"].append(lang_pred)
+                # Batch Size is only ever 1
+                # lang_pred: (1,1,L)
+                if model.n_lang_denses == 1:
+                    lang = lang_pred[0].unsqueeze(0)
+                else:
+                    lang = torch.cat(lang_pred, dim=0)
+                # lang: (N,1,L)
+                data["lang_preds"].append(lang)
                 actn = sample_action(F.softmax(actn_pred, dim=-1)).item()
                 # get target action
                 targ = self.oracle(self.env)
@@ -546,8 +555,8 @@ class ValidationRunner(Runner):
                 loop_count += int(n_tsteps is not None or done)
         self.state_bookmark = state
         self.h_bookmark = (model.h.data, model.c.data)
-        data["actn_preds"] = torch.cat(data["actn_preds"], dim=0)
-        data["lang_preds"] = torch.cat(data["lang_preds"], dim=0)
+        data["actn_preds"] = torch.cat(data["actn_preds"], dim=0) #(S,A)
+        data["lang_preds"] = torch.cat(data["lang_preds"], dim=1) #(N,S,L)
         data["actn_targs"] = torch.LongTensor(data["actn_targs"])
         data["dones"] = torch.LongTensor(data["dones"])
         data["grabs"] = torch.LongTensor(data["grabs"])

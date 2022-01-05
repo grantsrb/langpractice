@@ -96,6 +96,9 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         the learning rate
     "l2": float
         the weight decay or l2 regularization parameter
+    "lang_p": float between 0 and 1
+        the portion of the loss during the second phase attributed
+        to language.
     "conv_noise": float
         the standard deviation of gaussian noise applied to the
         convolutional layers of the model. if 0, has no effect

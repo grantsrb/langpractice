@@ -17,6 +17,7 @@ class Model(torch.nn.Module):
         inpt_shape,
         actn_size,
         lang_size,
+        n_lang_denses=1,
         h_size=128,
         bnorm=False,
         conv_noise=0,
@@ -31,6 +32,8 @@ class Model(torch.nn.Module):
                 the number of potential actions
             lang_size: int
                 the number of potential words
+            n_lang_denses: int
+                the number of duplicate language model outputs
             h_size: int
                 the size of the hidden dimension for the dense layers
             bnorm: bool
@@ -44,6 +47,7 @@ class Model(torch.nn.Module):
         self.bnorm = bnorm
         self.conv_noise = conv_noise
         self.dense_noise = dense_noise
+        self.n_lang_denses = n_lang_denses
 
     @property
     def is_cuda(self):
@@ -141,7 +145,7 @@ class RandomModel(Model):
             if x.is_cuda:
                 actn.cuda()
                 lang.cuda()
-            return actn, lang
+            return actn, (lang,)
 
     def step(self, x):
         """
@@ -165,7 +169,7 @@ class RandomModel(Model):
         if x.is_cuda:
             actn.cuda()
             lang.cuda()
-        return actn, lang
+        return actn, (lang,)
 
 class SimpleCNN(Model):
     """
@@ -259,7 +263,7 @@ class SimpleCNN(Model):
         fx = self.features(x)
         actn = self.actn_dense(fx)
         lang = self.lang_dense(fx)
-        return actn, lang
+        return actn, (lang,)
 
     def forward(self, x, *args, **kwargs):
         """
@@ -271,7 +275,7 @@ class SimpleCNN(Model):
         """
         b,s = x.shape[:2]
         actn, lang = self.step(x.reshape(-1, *x.shape[2:]))
-        return actn.reshape(b,s,-1), lang.reshape(b,s,-1)
+        return actn.reshape(b,s,-1), (lang[0].reshape(b,s,-1),)
 
 class SimpleLSTM(Model):
     """
@@ -299,13 +303,16 @@ class SimpleLSTM(Model):
         )
 
         # Lang Dense
-        self.lang_dense = nn.Sequential(
-            nn.ReLU(),
-            nn.Linear(self.h_size, 2*self.h_size),
-            nn.ReLU(),
-            nn.Linear(2*self.h_size, self.lang_size),
-        )
+        self.lang_denses = []
+        for i in range(self.n_lang_denses):
+            self.lang_denses.append(nn.Sequential(
+                nn.ReLU(),
+                nn.Linear(self.h_size, 2*self.h_size),
+                nn.ReLU(),
+                nn.Linear(2*self.h_size, self.lang_size),
+            ))
 
+        print("lang_denses:", self.n_lang_denses)
         # Memory
         self.h = None
         self.c = None
@@ -372,7 +379,8 @@ class SimpleLSTM(Model):
         Args:
             x: torch FloatTensor (B, C, H, W)
         Returns:
-            pred: torch Float Tensor (B, K)
+            actn: torch Float Tensor (B, K)
+            langs: list of torch Float Tensor (B, L)
         """
         if x.is_cuda:
             self.h = self.h.to(x.get_device())
@@ -380,7 +388,10 @@ class SimpleLSTM(Model):
         fx = self.features(x)
         fx = fx.reshape(len(x), -1) # (B, N)
         self.h, self.c = self.lstm(fx, (self.h, self.c))
-        return self.actn_dense(self.h), self.lang_dense(self.h)
+        langs = []
+        for dense in self.lang_denses:
+            langs.append(dense(self.h))
+        return self.actn_dense(self.h), langs
 
     def forward(self, x, dones, *args, **kwargs):
         """
@@ -392,6 +403,7 @@ class SimpleLSTM(Model):
         Returns:
             actns: torch FloatTensor (B, S, N)
                 N is equivalent to self.actn_size
+            langs: torch FloatTensor (N,B,S,L)
         """
         seq_len = x.shape[1]
         actns = []
@@ -403,11 +415,15 @@ class SimpleLSTM(Model):
         for s in range(seq_len):
             actn, lang = self.step(x[:,s])
             actns.append(actn.unsqueeze(1))
-            langs.append(lang.unsqueeze(1))
+            if self.n_lang_denses == 1:
+                lang = lang[0].unsqueeze(0).unsqueeze(2) # (1, B, 1, L)
+            else:
+                lang = torch.cat(lang, dim=0).unsqueeze(2)# (N, B, 1, L)
+            langs.append(lang)
             self.h, self.c = self.partial_reset(dones[:,s])
             self.prev_hs.append(self.h.detach().data)
             self.prev_cs.append(self.c.detach().data)
-        return torch.cat(actns, dim=1), torch.cat(langs, dim=1)
+        return torch.cat(actns, dim=1), torch.cat(langs, dim=2)
 
 
 
