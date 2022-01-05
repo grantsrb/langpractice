@@ -211,7 +211,11 @@ class Trainer:
             drops = data["drops"]
             n_items = data["n_items"]
             n_targs = data["n_targs"]
-            labels = self.get_lang_labels(n_items, n_targs)
+            labels = self.get_lang_labels(
+                n_items,
+                n_targs,
+                max_label=model.lang_size-1
+            )
 
             self.reset_model(model, len(obs))
             # model uses dones if it is recurrent
@@ -247,7 +251,7 @@ class Trainer:
             )
             if self.hyps["exp_name"] == "test" and i >= 2: break
 
-    def get_lang_labels(self, n_items, n_targs):
+    def get_lang_labels(self, n_items, n_targs, max_label):
         """
         Determines the language labels based on the type of training.
 
@@ -256,8 +260,12 @@ class Trainer:
                 the count of the items on the board
             n_targs: torch Tensor (N,)
                 the count of the targs on the board
+            max_label: int
+                the maximum allowed language label. can usually use
+                model.lang_size-1
         """
         labels = n_items.clone()
+        labels[labels>max_label] = max_label
         if not self.hyps["use_count_words"]:
             labels[n_items<n_targs] = 0
             labels[n_items==n_targs] = 1
@@ -470,7 +478,8 @@ class Trainer:
             )
             lang_labels = self.get_lang_labels(
                 eval_data["n_items"],
-                eval_data["n_targs"]
+                eval_data["n_targs"],
+                max_label=model.lang_size-1
             )
             drops = data_collector.exp_replay.get_drops(
                 eval_data["grabs"]
