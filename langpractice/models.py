@@ -239,17 +239,19 @@ class SimpleCNN(Model):
         )
 
         # Make Language MLP
-        modules = [
-            Flatten(),
-            nn.Linear(self.flat_size, self.h_size),
-            nn.ReLU()
-        ]
-        if self.bnorm:
-            modules.append(nn.BatchNorm1d(self.h_size))
-        self.lang_dense = nn.Sequential(
-            *modules,
-            nn.Linear(self.h_size, self.lang_size)
-        )
+        self.lang_denses = nn.ModuleList([])
+        for i in range(self.n_lang_denses):
+            modules = [
+                Flatten(),
+                nn.Linear(self.flat_size, self.h_size),
+                nn.ReLU()
+            ]
+            if self.bnorm:
+                modules.append(nn.BatchNorm1d(self.h_size))
+            self.lang_denses.append(nn.Sequential(
+                *modules,
+                nn.Linear(self.h_size, self.lang_size)
+            ))
 
     def step(self, x, *args, **kwargs):
         """
@@ -262,8 +264,11 @@ class SimpleCNN(Model):
         """
         fx = self.features(x)
         actn = self.actn_dense(fx)
-        lang = self.lang_dense(fx)
-        return actn, (lang,)
+        langs = []
+        for dense in self.lang_denses:
+            lang = dense(fx)
+            langs.append(lang)
+        return actn, langs
 
     def forward(self, x, *args, **kwargs):
         """
@@ -274,8 +279,9 @@ class SimpleCNN(Model):
                 N is equivalent to self.actn_size
         """
         b,s = x.shape[:2]
-        actn, lang = self.step(x.reshape(-1, *x.shape[2:]))
-        return actn.reshape(b,s,-1), (lang[0].reshape(b,s,-1),)
+        actn, langs = self.step(x.reshape(-1, *x.shape[2:]))
+        langs = torch.stack(langs, dim=0).reshape(len(langs), b, s, -1)
+        return actn.reshape(b,s,-1), langs
 
 class SimpleLSTM(Model):
     """
