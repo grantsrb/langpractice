@@ -215,15 +215,11 @@ class Trainer:
 
             self.reset_model(model, len(obs))
             # model uses dones if it is recurrent
-            t = time.time()
             logits, langs = model(
                 obs.to(DEVICE),
                 dones.to(DEVICE)
             )
-            print("model time:", (time.time()-t))
 
-            t = time.time()
-            print("langs len", len(langs))
             loss,accs = self.get_loss_and_accs(
                 logits=logits,
                 langs=langs,
@@ -233,12 +229,9 @@ class Trainer:
                 n_targs=n_targs.flatten(),
                 prepender="train"
             )
-            print("loss time:", (time.time()-t))
             # Backprop and update
-            t = time.time()
             loss.backward()
             self.optim.step()
-            print("backward and step:", (time.time()-t))
             # Calc acc
             # Record metrics
             metrics = {
@@ -317,15 +310,15 @@ class Trainer:
         # Phase 2: lang and action labels at all steps in rollout
         loss = 0
         accs_array = []
-        for lang in langs:
-            print("lang loop")
-            lang = lang.reshape(-1, lang.shape[-1])
-            if self.phase == 0:
-                idxs = drops==1
-                lang = lang[idxs]
-                labels = labels[idxs]
-                n_targs = n_targs[idxs]
-            if self.phase == 0 or self.phase == 2:
+        if self.phase == 0:
+            idxs = drops==1
+            labels = labels[idxs]
+            n_targs = n_targs[idxs]
+        if self.phase == 0 or self.phase == 2:
+            for lang in langs:
+                lang = lang.reshape(-1, lang.shape[-1])
+                if self.phase == 0:
+                    lang = lang[idxs]
                 labels = labels.to(DEVICE)
                 loss += self.loss_fxn(lang, labels)
                 with torch.no_grad():
@@ -336,9 +329,7 @@ class Trainer:
                         prepender=prepender
                     )
                     accs_array.append(accs)
-        if len(langs) > 0:
-            with torch.no_grad():
-                accs = Trainer.avg_over_accs_array(accs_array)
+            accs = Trainer.avg_over_accs_array(accs_array)
         if self.phase == 1 or self.phase == 2:
             actns = actns.to(DEVICE)
             p = self.hyps["lang_p"]

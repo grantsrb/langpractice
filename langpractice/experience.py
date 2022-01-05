@@ -256,7 +256,7 @@ class DataCollector:
         self.hyps["lang_size"] = self.hyps['targ_range'][1]+3
         self.hyps["n_lang_denses"] = 1
         if not self.hyps["use_count_words"]:
-            self.hyps["n_lang_denses"] = self.hyps["lang_size"][1]//3
+            self.hyps["n_lang_denses"] = self.hyps["lang_size"]//3
             self.hyps["lang_size"] = 3
         # Create gating mechanisms
         self.gate_q = mp.Queue(self.batch_size)
@@ -528,7 +528,7 @@ class ValidationRunner(Runner):
                 if model.n_lang_denses == 1:
                     lang = lang_pred[0].unsqueeze(0)
                 else:
-                    lang = torch.cat(lang_pred, dim=0)
+                    lang = torch.stack(lang_pred, dim=0)
                 # lang: (N,1,L)
                 data["lang_preds"].append(lang)
                 actn = sample_action(F.softmax(actn_pred, dim=-1)).item()

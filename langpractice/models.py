@@ -303,7 +303,7 @@ class SimpleLSTM(Model):
         )
 
         # Lang Dense
-        self.lang_denses = []
+        self.lang_denses = nn.ModuleList([])
         for i in range(self.n_lang_denses):
             self.lang_denses.append(nn.Sequential(
                 nn.ReLU(),
@@ -418,7 +418,7 @@ class SimpleLSTM(Model):
             if self.n_lang_denses == 1:
                 lang = lang[0].unsqueeze(0).unsqueeze(2) # (1, B, 1, L)
             else:
-                lang = torch.cat(lang, dim=0).unsqueeze(2)# (N, B, 1, L)
+                lang = torch.stack(lang, dim=0).unsqueeze(2)# (N, B, 1, L)
             langs.append(lang)
             self.h, self.c = self.partial_reset(dones[:,s])
             self.prev_hs.append(self.h.detach().data)
