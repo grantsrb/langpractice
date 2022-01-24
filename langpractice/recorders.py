@@ -102,8 +102,10 @@ class Recorder:
         dict of both the model and the optimizer.
 
         Args:
-            phase: int
-                the phase of the training
+            phase: int [0,1,2]
+                the phase of the training (is it (0) training the
+                language network or (1) training the action network or
+                (2) both together)
             epoch: int
                 the epoch count
             model: torch Module
@@ -121,6 +123,7 @@ class Recorder:
             "state_dict": model.state_dict(),
             "optim_dict": optim.state_dict(),
         }
+        save_dict["stats"]["phase"] = phase
         key = self.hyps["best_by_key"]
         if key not in save_dict["stats"]: key = "val_loss_avg"
         if "loss" in key:

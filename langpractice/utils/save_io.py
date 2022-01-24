@@ -130,20 +130,21 @@ def is_model_folder(path, exp_name=None):
             return True
     return False
 
-def get_model_folders(main_folder, incl_ext=False):
+def get_model_folders(main_folder, incl_full_path=False):
     """
     Returns a list of paths to the model folders contained within the
     argued main_folder
 
     main_folder - str
         path to main folder
-    incl_ext: bool
+    incl_full_path: bool
         include extension flag. If true, the expanded paths are
         returned. otherwise only the end folder (i.e.  <folder_name>
         instead of main_folder/<folder_name>)
 
     Returns:
-        list of folder names (see incl_ext for full path vs end point)
+        list of folder names (see incl_full_path for full path vs end
+        point)
     """
     folders = []
     main_folder = os.path.expanduser(main_folder)
@@ -153,7 +154,7 @@ def get_model_folders(main_folder, incl_ext=False):
         for sub_d in sub_ds:
             check_folder = os.path.join(d,sub_d)
             if is_model_folder(check_folder,exp_name=exp_name):
-                if incl_ext:
+                if incl_full_path:
                     folders.append(check_folder)
                 else:
                     folders.append(sub_d)

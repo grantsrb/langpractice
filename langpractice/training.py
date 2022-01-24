@@ -46,15 +46,17 @@ def train(rank, hyps, verbose=True):
     recorder = Recorder(hyps, model)
     # initialize trainer
     trainer = Trainer(hyps, model, recorder, verbose=verbose)
-    # Loop training
-    n_epochs = hyps["lang_epochs"] if hyps["exp_name"] != "test" else 2
-    training_loop(
-        n_epochs,
-        data_collector,
-        trainer,
-        model,
-        verbose=verbose
-    )
+    if "skip_first_phase" not in hyps or not hyps["skip_first_phase"]:
+        # Loop training
+        exp_name = hyps["exp_name"]
+        n_epochs = hyps["lang_epochs"] if exp_name != "test" else 2
+        training_loop(
+            n_epochs,
+            data_collector,
+            trainer,
+            model,
+            verbose=verbose
+        )
     trainer.phase = hyps["second_phase"]
     n_epochs = hyps["actn_epochs"] if hyps["exp_name"] != "test" else 2
     s = "\n\nBeginning Second Phase " + str(trainer.phase)
@@ -135,6 +137,10 @@ class Trainer:
         self.model = model
         self.recorder = recorder
         self.verbose = verbose
+        #phase: int [0,1,2]
+        #    the phase of the training (is it (0) training the
+        #    language network or (1) training the action network or
+        #    (2) both together)
         self.phase = 0 # used to determine type of training
         self.optim = self.get_optimizer(
             self.model,
@@ -515,6 +521,9 @@ class Trainer:
         inpts = {k:v.cpu().data.numpy() for k,v in inpts.items()}
         inpts["epoch"] = [
             epoch for i in range(len(inpts["n_items"]))
+        ]
+        inpts["phase"] = [
+            self.phase for i in range(len(inpts["n_items"]))
         ]
         self.recorder.to_df(**inpts)
         self.recorder.track_loop(metrics)

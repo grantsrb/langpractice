@@ -254,10 +254,11 @@ class DataCollector:
         self.hyps['inpt_shape'] = self.val_runner.state_bookmark.shape
         self.hyps["actn_size"] = self.val_runner.env.actn_size
         self.hyps["lang_size"] = self.hyps['targ_range'][1]+3
-        self.hyps["n_lang_denses"] = 1
-        if not self.hyps["use_count_words"]:
-            self.hyps["n_lang_denses"] = self.hyps["lang_size"]//3
-            self.hyps["lang_size"] = 3
+        if "n_lang_denses" not in self.hyps:
+            self.hyps["n_lang_denses"] = 1
+            if int(self.hyps["use_count_words"]) == 0:
+                self.hyps["n_lang_denses"] = self.hyps["lang_size"]//3
+                self.hyps["lang_size"] = 3
         # Create gating mechanisms
         self.gate_q = mp.Queue(self.batch_size)
         self.stop_q = mp.Queue(self.batch_size)

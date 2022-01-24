@@ -30,6 +30,7 @@ Next you will to install this pip package. Run the following:
 python3.6 -m pip install --user -e .
 ```
 
+## Repo Usage
 ### Watching Your Trained Policy
 After training your policy, you can watch the policy run in the environment using the `watch_model.py` script. To use this file, pass the name of the saved model folder that you would like to watch. The viewing script will automatically create a version of the environment that the model was trained on, load the best version of the model based on the evaluated performance during training, and run the model on the environment.
 
@@ -41,6 +42,15 @@ Here's an example:
 Much of deep learning consists of tuning hyperparameters. It can be extremely addicting to change the hyperparameters by hand and then stare at the average reward as the algorithm trains. THIS IS A HOMERIAN SIREN! DO NOT SUCCUMB TO THE PLEASURE! It is too easy to change hyperparameters before their results are fully known. It is difficult to keep track of what you did, and the time spent toying with hyperparameters can be spent reading papers, studying something useful, or calling your Mom and telling her that you love her (you should do that right now. Your dad, too)
 
 This repo can automate your hyperparameter searches using a `hyperranges json`. Simply specify the key you would like to search over and specify a list of values that you would like that key to take. If multiple keys are listed, then all combinations of the possible values will be searched. 
+
+### Saved Outputs
+Each combination of hyperparameters gets saved to a "model\_folder" under the path within a greater folder called the "exp\_folder". The experiment folder is specified within the `hyperparams.json`.
+
+Within the `model_folder` a checkpoint file exists for each epoch in the training. The checkpoints contain details about the statistics for that epoch as well as holding the hyperparameters for that epoch. The "best" and "last" checkpoints also contain the model parameters. You can save a copy of the model parameters at every epoch using the `hyperparams.json`.
+
+### `validation\_stats.csv`
+For this project a csv is created for each training session. The csv consists of the ending metrics of each validation episode for each epoch. This should enable you to analyze how the model performance changed over the course of the training and allow you to calculate statistics such as the coefficient of variation.
+
 
 #### List of Valid Keys for hyperparams json
 Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to use the specified parameters.
@@ -76,6 +86,10 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         if true, the model learns to count out the items using number
         words. If false, the model instead learns to count by issuing
         a less-than, equal-to, or greater-than prediction.
+    "skip_first_phase": bool
+        if true, the training will skip phase 0 and go straight to
+        phase 1 or 2 (depending on the value of `second_phase`).
+        Defaults to false.
     "second_phase": int (1 or 2)
         this determines if the model will be trained with language
         during the second phase of the training. If 1, the model is

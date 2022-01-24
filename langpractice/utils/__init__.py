@@ -1,2 +1,2 @@
-from . import datas, training, save_io, utils
+from . import datas, training, save_io, utils, analysis
 
