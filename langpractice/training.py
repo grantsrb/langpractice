@@ -272,10 +272,80 @@ class Trainer:
         """
         labels = n_items.clone()
         labels[labels>max_label] = max_label
-        if not self.hyps["use_count_words"]:
+        if int(self.hyps["use_count_words"]) == 0:
             labels[n_items<n_targs] = 0
             labels[n_items==n_targs] = 1
             labels[n_items>n_targs] = 2
+        elif int(self.hyps["use_count_words"]) == 2:
+            labels = self.get_piraha_labels(labels, n_items, n_targs)
+        return labels
+
+    def get_piraha_labels(self, labels, n_items, n_targs):
+        """
+        Converts the number of items that exist in the game (not
+        including the targets) to a count word in the piraha language.
+
+        Uses the following probablities for each count word conversion.
+        Probabilities taken from Frank 2008.
+            number 0:
+                labels: 0
+                probabilities: [1]
+            number 1:
+                labels: 1
+                probabilities: [1]
+            number 2:
+                labels: 2
+                probabilities: [1]
+            number 3:
+                labels: 2,3
+                probabilities: [.55, .45]
+            numbers 4-7:
+                labels: 2,3
+                probabilities: [.4, .6]
+            numbers 8 and above:
+                labels: 2,3
+                probabilities: [.3, .7]
+
+        Args:
+            labels: torch Tensor (N,)
+                the count of the items on the board (a clone of n_items
+                works just fine)
+            n_items: torch Tensor (N,)
+                the count of the items on the board
+            n_targs: torch Tensor (N,)
+                the count of the targs on the board
+        """
+        weights = {
+            "3":   torch.FloatTensor([.55, .45]),
+            "4-7": torch.FloatTensor([.4, .6]),
+            "8":   torch.FloatTensor([.3, .7])
+        }
+        labels[n_items==1] = 1
+        labels[n_items==2] = 2
+        # Sample the Piraha count words with the appropriate length 
+        # using weights found in Frank's 2008 "Number as a cog tech"
+        idx = (n_items==3)
+        l = len(labels[idx])
+        if l > 0:
+            labs = torch.multinomial(weights["3"], l, replacement=True)
+            # samples are 0 indexed, so add 2 for the proper label
+            labels[idx] = labs + 2
+
+        # Repeat previous step for numbers 4-7
+        idx = (n_items>=4)&(n_items<=7)
+        l = len(labels[idx])
+        if l > 0:
+            labs = torch.multinomial(weights["4-7"], l, replacement=True)
+            # samples are 0 indexed, so add 2 for the proper label
+            labels[idx] = labs + 2
+
+        # Repeat previous step for numbers 8 and greater
+        idx = (n_items>=8)
+        l = len(labels[idx])
+        if l > 0:
+            labs = torch.multinomial(weights["8"], l, replacement=True)
+            # samples are 0 indexed, so add 2 for the proper label
+            labels[idx] = labs + 2
         return labels
 
     def get_loss_and_accs(self,

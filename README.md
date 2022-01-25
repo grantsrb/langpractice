@@ -82,10 +82,18 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
     "actn_epochs": int
         The number of training epochs for the action training phase
 
-    "use_count_words": bool
-        if true, the model learns to count out the items using number
-        words. If false, the model instead learns to count by issuing
-        a less-than, equal-to, or greater-than prediction.
+    "use_count_words": int [0, 1, or 2]
+        this determines what type of count words should be used. If 0,
+        the model learns to count by issuing a less-than, equal-to, or
+        greater-than prediction of the number of items relative to
+        the number of targets. If 1, the model learns to count out the
+        items using english number words. Lastly if 2 is argued, the
+        model learns the Piraha count words which are probabilistically
+        derived at runtime to match the statistics found in Frank 2008.
+        In this case, 4 possible labels exist. 0, 1, and 2 each are used
+        100% of the time for numbers 0,1,and 2. But for numbers 3 and
+        greater, either label 2 or 3 is used for the count word with
+        a probability matching the published values.
     "skip_first_phase": bool
         if true, the training will skip phase 0 and go straight to
         phase 1 or 2 (depending on the value of `second_phase`).
