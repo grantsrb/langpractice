@@ -35,6 +35,7 @@ def get_stats_dataframe(model_folders, names=None):
         names = ["model"+str(i) for i in range(len(model_folders))]
     assert len(names) == len(model_folders)
     
+    # Make Main Data Frame
     checkpt = None
     i = 0
     while checkpt is None and i < len(model_folders):
@@ -44,23 +45,30 @@ def get_stats_dataframe(model_folders, names=None):
     stats = checkpt["stats"]
     keys = [k for k in stats.keys()]
     df = {k:[] for k in keys+extras}
-    if "phase" not in stats: df["phase"] = []
+    if "phase" not in stats:
+        keys.append("phase")
+        df["phase"] = []
     main_df = pd.DataFrame(df)
     
+    # Add Each Model's Data to Main Data Frame
     for model_folder, name in zip(model_folders, names):
         checkpts = sgio.get_checkpoints(model_folder)
-        df = {k:[] for k in keys}
+        df = None
         for path in checkpts:
             checkpt = sgio.load_checkpoint(path)
-            for k in keys:
+            if df is None: df = {k:[] for k in checkpt["stats"].keys()}
+            for k in checkpt["stats"].keys():
                 df[k].append(checkpt["stats"][k])
-            if "phase" not in keys: df["phase"].append(checkpt["phase"])
+            if "phase" not in df:
+                df["phase"] = [checkpt["phase"]]
+            elif "phase" not in checkpt["stats"]:
+                df["phase"].append(checkpt["phase"])
         df = pd.DataFrame(df)
         df["epoch"] = list(range(len(df)))
         df["model_path"] = model_folder
         df["name"] = name
         df["model_num"] = checkpt["hyps"]["exp_num"]
-        main_df = main_df.append(df)
+        main_df = main_df.append(df, sort=True)
     return main_df
 
 def get_hyps_dataframe(model_folders, names=None):
@@ -109,9 +117,7 @@ def get_hyps_dataframe(model_folders, names=None):
     
     for model_folder, name in zip(model_folders, names):
         checkpt = sgio.load_checkpoint(model_folder)
-        df = {k:[] for k in keys}
-        for k in keys:
-            df[k].append(checkpt["hyps"][k])
+        df = {k:[checkpt["hyps"][k]] for k in checkpt["hyps"].keys()}
         df = pd.DataFrame(df)
         df["model_path"] = model_folder
         num = checkpt["hyps"]["exp_num"]
@@ -119,5 +125,5 @@ def get_hyps_dataframe(model_folders, names=None):
             name = checkpt["hyps"]["exp_name"] + str(num)
         df["name"] = name
         df["model_num"] = num
-        main_df = main_df.append(df)
+        main_df = main_df.append(df, sort=True)
     return main_df
