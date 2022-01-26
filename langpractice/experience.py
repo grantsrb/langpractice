@@ -254,11 +254,10 @@ class DataCollector:
         self.hyps['inpt_shape'] = self.val_runner.state_bookmark.shape
         self.hyps["actn_size"] = self.val_runner.env.actn_size
         self.hyps["lang_size"] = self.hyps['targ_range'][1]+1
-        if "n_lang_denses" not in self.hyps:
-            self.hyps["n_lang_denses"] = 1
-            if int(self.hyps["use_count_words"]) == 0:
-                self.hyps["n_lang_denses"] = self.hyps["lang_size"]//3
-                self.hyps["lang_size"] = 3
+        if int(self.hyps["use_count_words"]) == 0:
+            self.hyps["lang_size"] = 3
+        elif int(self.hyps["use_count_words"]) == 2:
+            self.hyps["lang_size"] = 4
         # Create gating mechanisms
         self.gate_q = mp.Queue(self.batch_size)
         self.stop_q = mp.Queue(self.batch_size)
@@ -267,7 +266,9 @@ class DataCollector:
         # Initialize runners
         self.runners = []
         offset = try_key(self.hyps, 'runner_seed_offset', 0)
-        for i in range(self.hyps['n_envs']):
+        # We add one here because the validation environment defaults
+        # to the argued seed without offset
+        for i in range(1,self.hyps['n_envs']+1):
             seed = self.hyps["seed"] + offset + i
             temp_hyps = {**self.hyps, "seed": seed}
             runner = Runner(

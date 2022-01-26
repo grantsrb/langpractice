@@ -44,6 +44,7 @@ def get_stats_dataframe(model_folders, names=None):
     stats = checkpt["stats"]
     keys = [k for k in stats.keys()]
     df = {k:[] for k in keys+extras}
+    if "phase" not in stats: df["phase"] = []
     main_df = pd.DataFrame(df)
     
     for model_folder, name in zip(model_folders, names):
@@ -53,6 +54,7 @@ def get_stats_dataframe(model_folders, names=None):
             checkpt = sgio.load_checkpoint(path)
             for k in keys:
                 df[k].append(checkpt["stats"][k])
+            if "phase" not in keys: df["phase"].append(checkpt["phase"])
         df = pd.DataFrame(df)
         df["epoch"] = list(range(len(df)))
         df["model_path"] = model_folder

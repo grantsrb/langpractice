@@ -115,7 +115,7 @@ class Recorder:
                 the training optimizer. this function will save its
                 state_dict
         """
-        save_name = "checkpt"
+        save_name = "checkpt_phase"+str(phase)
         save_name = os.path.join(self.hyps['save_folder'], save_name)
         save_dict = {
             "phase": phase,

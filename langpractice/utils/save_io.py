@@ -69,8 +69,10 @@ def save_best_checkpt(save_dict, folder):
 def get_checkpoints(folder, checkpt_exts={'p', 'pt', 'pth'}):
     """
     Returns all .p, .pt, and .pth file names contained within the
-    folder. They're sorted by their epoch. BEST_CHECKPT_PATH is not
-    included in this list
+    folder. They're sorted by their epoch.
+
+    BEST_CHECKPT_PATH is not included in this list. It is excluded by
+    its extension ".best"
 
     folder: str
         path to the folder of interest

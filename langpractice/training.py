@@ -6,6 +6,7 @@ from langpractice.utils.utils import try_key
 from torch.optim import Adam, RMSprop
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.nn import CrossEntropyLoss
+from PIL import Image
 import torch
 import numpy as np
 import time
@@ -58,6 +59,12 @@ def train(rank, hyps, verbose=True):
             verbose=verbose
         )
     trainer.phase = hyps["second_phase"]
+    # Fresh optimizer
+    trainer.optim = trainer.get_optimizer(
+        model,
+        hyps["optim_type"],
+        hyps["lr"]
+    )
     n_epochs = hyps["actn_epochs"] if hyps["exp_name"] != "test" else 2
     s = "\n\nBeginning Second Phase " + str(trainer.phase)
     recorder.write_to_log(s)
@@ -416,7 +423,7 @@ class Trainer:
             accs = Trainer.avg_over_accs_array(accs_array)
         if self.phase == 1 or self.phase == 2:
             actns = actns.to(DEVICE)
-            p = self.hyps["lang_p"]
+            p = self.hyps["lang_p"] if self.phase == 2 else 0
             loss = p*loss + (1-p)*self.loss_fxn(logits, actns)
             with torch.no_grad():
                 accs = self.calc_accs( # accs is a dict of floats

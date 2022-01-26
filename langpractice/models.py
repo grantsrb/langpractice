@@ -362,7 +362,6 @@ class SimpleLSTM(Model):
 
     def reset_to_step(self, step=1):
         """
-        Only necessary to override if building a recurrent network.
         This function resets all recurrent states in a model to the
         recurrent state that occurred after the first step in the last
         call to forward.

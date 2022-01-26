@@ -184,7 +184,7 @@ def fill_hyper_q(hyps, hyp_ranges, keys, hyper_q, idx=0):
                     hyps['search_keys'] += "_" + str(rk)+str(hyps[rk])
             else:
                 hyps['search_keys'] += "_" + str(k)+str(hyps[k])
-        hyper_q.put({k:v for k,v in hyps.items()})
+        hyper_q.put({**hyps})
 
     # Non-base call. Sets a hyperparameter to a new search value and
     # passes down the dict.
