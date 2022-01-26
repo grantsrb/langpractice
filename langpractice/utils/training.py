@@ -61,16 +61,28 @@ def get_resume_checkpt(hyps, verbose=True):
             return checkpt, hyps
     return None, hyps
 
-def get_exp_num(exp_folder, exp_name):
+def get_exp_num(exp_folder, exp_name, offset=0):
     """
-    Finds the next open experiment id number.
+    Finds the next open experiment id number by searching through the
+    existing experiment numbers in the folder.
 
-    exp_folder: str
-        path to the main experiment folder that contains the model
-        folders (should not include the experiment name as the final
-        directory)
-    exp_name: str
-        the name of the experiment
+    If an offset is argued, it is impossible to have an exp_num that is
+    less than the value of the offset. The returned exp_num will be
+    the next available experiment number starting with the value of the
+    offset.
+
+    Args:
+        exp_folder: str
+            path to the main experiment folder that contains the model
+            folders (should not include the experiment name as the final
+            directory)
+        exp_name: str
+            the name of the experiment
+        offset: int
+            a number to offset the experiment numbers by.
+
+    Returns:
+        exp_num: int
     """
     name_splt = exp_name.split("_")
     namedex = 1
@@ -95,9 +107,9 @@ def get_exp_num(exp_folder, exp_name):
             if name == exp_name and num is not None:
                 exp_nums.add(num)
     for i in range(len(exp_nums)):
-        if i not in exp_nums:
-            return i
-    return len(exp_nums)
+        if i+offset not in exp_nums:
+            return i+offset
+    return len(exp_nums) + offset
 
 def get_save_folder(hyps):
     """

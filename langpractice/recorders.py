@@ -42,7 +42,8 @@ class Recorder:
         )
         hyps['exp_num'] = get_exp_num(
             hyps['main_path'],
-            hyps['exp_name']
+            hyps['exp_name'],
+            offset=try_key(hyps, "exp_num_offset", 0)
         )
         hyps['save_folder'] = get_save_folder(hyps)
         # Create save folder if one doesn't exist
