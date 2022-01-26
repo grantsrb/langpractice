@@ -60,6 +60,10 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         be saved to. This is different than the path. If you would like
         to save the experiment to a different folder than the one in
         which you run `main.py`, use the hyperparemter called `save_root`
+    "exp_num_offset": int
+        a number by which to offset all experiment numbers. This is
+        useful in cases where you want to run trainings on different
+        machines but avoid overlapping experiment numbers
     "save_root": str
         this value is prepended to the exp_name when creating the save
         folder for the hyperparameter search.
