@@ -2,8 +2,12 @@ import torch
 import os
 import pandas as pd
 import langpractice.utils.save_io as lpio
+from tqdm import tqdm
 
-def get_stats_dataframe(model_folders, names=None, incl_hyps=False):
+def get_stats_dataframe(model_folders,
+                        names=None,
+                        incl_hyps=False,
+                        verbose=False):
     """
     Sorts through all checkpoints of all models contained within the
     model_folders array.  Returns a dataframe with all of their stats.
@@ -44,9 +48,12 @@ def get_stats_dataframe(model_folders, names=None, incl_hyps=False):
     
     # Add Each Model's Data to Main Data Frame
     for model_folder, name in zip(model_folders, names):
+        if verbose: print("Collecting from", model_folder)
         checkpts = lpio.get_checkpoints(model_folder)
         df = None
-        for ci,path in enumerate(checkpts):
+        rang = enumerate(checkpts)
+        if verbose: rang = tqdm(rang)
+        for ci,path in rang:
             checkpt = lpio.load_checkpoint(path)
             if ci==0:
                 df = {k:[] for k in checkpt["stats"].keys()}
