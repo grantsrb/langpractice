@@ -119,7 +119,9 @@ class Recorder:
         save_name = "checkpt_phase"+str(phase)
         save_name = os.path.join(self.hyps['save_folder'], save_name)
         save_dict = {
+            "epoch": epoch,
             "phase": phase,
+            "hyps": self.hyps,
             "stats": self.accumulate_stats(),
             "state_dict": model.state_dict(),
             "optim_dict": optim.state_dict(),
@@ -131,7 +133,6 @@ class Recorder:
             is_best = save_dict["stats"][key] < self.best_score
         else:
             is_best = save_dict["stats"][key] > self.best_score
-        save_dict["hyps"] = self.hyps
         save_checkpt(
             save_dict,
             save_name,
