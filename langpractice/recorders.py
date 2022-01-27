@@ -125,6 +125,7 @@ class Recorder:
             "stats": self.accumulate_stats(),
             "state_dict": model.state_dict(),
             "optim_dict": optim.state_dict(),
+            "current_lr": optim.param_groups[0]["lr"],
         }
         save_dict["stats"]["phase"] = phase
         key = self.hyps["best_by_key"]

@@ -60,7 +60,7 @@ def train(rank, hyps, verbose=True):
         )
     trainer.phase = hyps["second_phase"]
     # Fresh optimizer
-    trainer.optim = trainer.get_optimizer(
+    trainer.set_optimizer_and_scheduler(
         model,
         hyps["optim_type"],
         hyps["lr"]
@@ -149,24 +149,22 @@ class Trainer:
         #    language network or (1) training the action network or
         #    (2) both together)
         self.phase = 0 # used to determine type of training
-        self.optim = self.get_optimizer(
+        self.set_optimizer_and_scheduler(
             self.model,
             self.hyps["optim_type"],
             self.hyps["lr"]
         )
-        self.scheduler = ReduceLROnPlateau(
-            self.optim,
-            'min',
-            factor=0.5,
-            patience=6,
-            verbose=self.verbose
-        )
         self.loss_fxn = globals()[self.hyps["loss_fxn"]]()
 
-    def get_optimizer(self, model, optim_type, lr, *args, **kwargs):
+    def set_optimizer_and_scheduler(self,
+                                    model,
+                                    optim_type,
+                                    lr,
+                                    *args, **kwargs):
         """
         Initializes an optimizer using the model parameters and the
-        hyperparameters.
+        hyperparameters. Also sets a scheduler for the optimizer's
+        learning rate.
     
         Args:
             model: Model or torch.Module
@@ -180,7 +178,18 @@ class Trainer:
             optim: torch optimizer
                 the model optimizer
         """
-        return globals()[optim_type](list(model.parameters()), lr=lr)
+        self.optim = globals()[optim_type](
+            list(model.parameters()),
+            lr=lr
+        )
+        self.scheduler = ReduceLROnPlateau(
+            self.optim,
+            mode='min',
+            factor=0.5,
+            patience=6,
+            threshold=0.01,
+            verbose=self.verbose
+        )
 
     def reset_model(self, model, batch_size):
         """
