@@ -1,7 +1,9 @@
+import torch
+import os
 import pandas as pd
-import supervised_gym.utils.save_io as sgio
+import langpractice.utils.save_io as lpio
 
-def get_stats_dataframe(model_folders, names=None):
+def get_stats_dataframe(model_folders, names=None, incl_hyps=False):
     """
     Sorts through all checkpoints of all models contained within the
     model_folders array.  Returns a dataframe with all of their stats.
@@ -27,6 +29,9 @@ def get_stats_dataframe(model_folders, names=None):
             array must be as long as the model_folders array. if None,
             each name defaults to "model<int>" where <int> is repaced
             by the order in which this model was processed in the loop
+        incl_hyps: bool
+            if true, the hyperparameters will also be loaded into
+            the dataframe
     """
     extras = ["epoch", "model_path", "model_num", "name"]
     if len(model_folders) == 0:
@@ -35,40 +40,51 @@ def get_stats_dataframe(model_folders, names=None):
         names = ["model"+str(i) for i in range(len(model_folders))]
     assert len(names) == len(model_folders)
     
-    # Make Main Data Frame
-    checkpt = None
-    i = 0
-    while checkpt is None and i < len(model_folders):
-        checkpt = sgio.load_checkpoint(model_folders[i])
-        i+=1
-    if checkpt is None: return pd.DataFrame({ k: [] for k in extras })
-    stats = checkpt["stats"]
-    keys = [k for k in stats.keys()]
-    df = {k:[] for k in keys+extras}
-    if "phase" not in stats:
-        keys.append("phase")
-        df["phase"] = []
-    main_df = pd.DataFrame(df)
+    main_df = None
     
     # Add Each Model's Data to Main Data Frame
     for model_folder, name in zip(model_folders, names):
-        checkpts = sgio.get_checkpoints(model_folder)
+        checkpts = lpio.get_checkpoints(model_folder)
         df = None
-        for path in checkpts:
-            checkpt = sgio.load_checkpoint(path)
-            if df is None: df = {k:[] for k in checkpt["stats"].keys()}
-            for k in checkpt["stats"].keys():
-                df[k].append(checkpt["stats"][k])
-            if "phase" not in df:
-                df["phase"] = [checkpt["phase"]]
-            elif "phase" not in checkpt["stats"]:
-                df["phase"].append(checkpt["phase"])
-        df = pd.DataFrame(df)
-        df["epoch"] = list(range(len(df)))
+        for ci,path in enumerate(checkpts):
+            checkpt = lpio.load_checkpoint(path)
+            if ci==0:
+                df = {k:[] for k in checkpt["stats"].keys()}
+                if incl_hyps:
+                    hyps = {k:[] for k in checkpt["hyps"].keys()}
+                df["phase"] = []
+                df["epoch"] = []
+            for k in {*checkpt["stats"].keys(), *df.keys()}:
+                if k not in df:
+                    df[k] = [None for i in range(ci)]
+                if k not in checkpt["stats"]:
+                    try:
+                        if k == "phase": df[k].append(checkpt["phase"])
+                        elif k == "epoch": df[k].append(checkpt["epoch"])
+                        else: df[k].append(None)
+                    except:
+                        if k == "epoch":
+                            epoch=int(path.split(".")[0].split("_")[-1])
+                            df[k].append(epoch)
+                            checkpt[k] = epoch
+                            torch.save(checkpt, os.path.expanduser(path))
+                else:
+                    df[k].append(checkpt["stats"][k])
+            if incl_hyps:
+                for k in hyps.keys():
+                    if k in checkpt["hyps"]:
+                        hyps[k].append(checkpt["hyps"][k])
+        try:
+            if incl_hyps: df = {**df, **hyps}
+            df = pd.DataFrame(df)
+        except:
+            for k in df.keys():
+                print(k, "-", len(df[k]))
         df["model_path"] = model_folder
         df["name"] = name
         df["model_num"] = checkpt["hyps"]["exp_num"]
-        main_df = main_df.append(df, sort=True)
+        if main_df is None: main_df = df
+        else: main_df = main_df.append(df, sort=True)
     return main_df
 
 def get_hyps_dataframe(model_folders, names=None):
@@ -107,7 +123,7 @@ def get_hyps_dataframe(model_folders, names=None):
     checkpt = None
     i = 0
     while checkpt is None and i < len(model_folders):
-        checkpt = sgio.load_checkpoint(model_folders[i])
+        checkpt = lpio.load_checkpoint(model_folders[i])
         i+=1
     if checkpt is None: return pd.DataFrame({ k: [] for k in extras })
     hyps = checkpt["hyps"]
@@ -116,7 +132,7 @@ def get_hyps_dataframe(model_folders, names=None):
     main_df = pd.DataFrame(df)
     
     for model_folder, name in zip(model_folders, names):
-        checkpt = sgio.load_checkpoint(model_folder)
+        checkpt = lpio.load_checkpoint(model_folder)
         df = {k:[checkpt["hyps"][k]] for k in checkpt["hyps"].keys()}
         df = pd.DataFrame(df)
         df["model_path"] = model_folder
