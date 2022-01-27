@@ -263,6 +263,9 @@ class Trainer:
                 iter_start
             )
             if self.hyps["exp_name"] == "test" and i >= 2: break
+        self.scheduler.step(
+            np.mean(self.recorder.metrics["train_acc"])
+        )
 
     def get_lang_labels(self, n_items, n_targs, max_label):
         """
@@ -754,7 +757,7 @@ def coef_of_var(n_items, n_targs, **kwargs):
         coef_var: float
             the error divided by the average n_targs
     """
-    return n_items.std()/n_targs.mean()
+    return n_items.std()/n_items.mean()
 
 def perc_aligned(n_aligned, n_targs, **kwargs):
     """
