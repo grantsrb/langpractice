@@ -180,7 +180,8 @@ class Trainer:
         """
         self.optim = globals()[optim_type](
             list(model.parameters()),
-            lr=lr
+            lr=lr,
+            weight_decay=self.hyps["l2"]
         )
         self.scheduler = ReduceLROnPlateau(
             self.optim,
