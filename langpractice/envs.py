@@ -31,15 +31,15 @@ class SequentialEnvironment:
         Args:
             env_type: str
                 the name of the environment
-            preprocessor: function
-                the preprocessing function to be used on each of the
-                observations
+            preprocessor: str
+                the string name of the preprocessing function to be
+                used on each of the observations
             seed: int
                 the random seed for the environment
         """
         self.env_type = env_type
         self.preprocessor = globals()[preprocessor]
-        self.seed = seed
+        self.seed = time.time() if seed is None else seed
 
         try:
             if "gordongames" in env_type or "nake" in env_type:
