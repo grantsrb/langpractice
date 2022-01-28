@@ -265,16 +265,18 @@ class Trainer:
                 "train_loss": loss.item(),
                 **accs}
             self.recorder.track_loop(metrics)
+            key = "train_lang_acc" if self.phase==0 else "train_actn_acc"
             self.print_loop(
                 i,
                 len(data_iter),
                 loss.item(),
-                accs["train_acc"],
+                accs[key],
                 iter_start
             )
             if self.hyps["exp_name"] == "test" and i >= 2: break
+        key = "train_lang_loss" if self.phase==0 else "train_actn_loss"
         self.scheduler.step(
-            np.mean(self.recorder.metrics["train_loss"])
+            np.mean(self.recorder.metrics[key])
         )
 
     def get_lang_labels(self, n_items, n_targs, max_label):
@@ -418,6 +420,7 @@ class Trainer:
             idxs = drops==1
             labels = labels[idxs]
             n_targs = n_targs[idxs]
+        lang_accs = {}
         if self.phase == 0 or self.phase == 2:
             for lang in langs:
                 lang = lang.reshape(-1, lang.shape[-1])
@@ -430,22 +433,23 @@ class Trainer:
                         logits=lang,
                         targs=labels,
                         categories=n_targs,
-                        prepender=prepender
+                        prepender=prepender+"_lang"
                     )
                     accs_array.append(accs)
-            accs = Trainer.avg_over_accs_array(accs_array)
+            lang_accs = Trainer.avg_over_accs_array(accs_array)
+        actn_accs = {}
         if self.phase == 1 or self.phase == 2:
             actns = actns.to(DEVICE)
             p = self.hyps["lang_p"] if self.phase == 2 else 0
             loss = p*loss + (1-p)*self.loss_fxn(logits, actns)
             with torch.no_grad():
-                accs = self.calc_accs( # accs is a dict of floats
+                actn_accs = self.calc_accs( # accs is a dict of floats
                     logits=logits,
                     targs=actns,
                     categories=n_targs,
-                    prepender=prepender
+                    prepender=prepender+"_actn"
                 )
-        return loss, accs
+        return loss, {**actn_accs, **lang_accs}
 
     @staticmethod
     def avg_over_accs_array(accs_array):
@@ -767,6 +771,7 @@ def coef_of_var(n_items, n_targs, **kwargs):
         coef_var: float
             the error divided by the average n_targs
     """
+    if len(n_items) == 0: return np.inf
     return n_items.std()/n_items.mean()
 
 def perc_aligned(n_aligned, n_targs, **kwargs):
