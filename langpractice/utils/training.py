@@ -21,26 +21,44 @@ import os
 import torch.multiprocessing as mp
 from datetime import datetime
 
-def get_resume_checkpt(hyps, verbose=True):
+def get_resume_checkpt(hyps, in_place=False, verbose=True):
     """
     This function cleans up the code to resume from a particular
-    checkpoint or folder. 
-    
-    Be careful, this does change the hyps dict in place!!!!
+    checkpoint or folder.
 
-    hyps: dict
-        dictionary of hyperparameters
-        keys: str
-            "resume_folder": str
-                must be a key present in hyps for this function to act.
-            "ignore_keys": list of str
-                an optional key used to enumerate keys to be ignored
-                when loading the old hyperparameter set
-        vals: varies
+    Args:
+        hyps: dict
+            dictionary of hyperparameters
+            keys: str
+                "resume_folder": str
+                    must be a key present in hyps for this function to act.
+                "ignore_keys": list of str
+                    an optional key used to enumerate keys to be ignored
+                    when loading the old hyperparameter set
+            vals: varies
+        in_place: bool
+            if true, changes the argued hyperparameters in place.
+            otherwise has no effect on the argued hyperparameters
+    Returns:
+        checkpt: dict or None
+            a loaded checkpoint dict of the model that will be resumed
+            from. None if the checkpoint does not exist
+        hyps: dict
+            the modified hyperparameters. This does not reference the
+            argued hyps object. But will be a deep copy of the argued
+            hyps if `in_place` is true.
     """
-    ignore_keys = ['n_epochs','rank',"n_eval_steps"]
+    ignore_keys = [
+        'n_epochs',
+        'rank',
+        "n_eval_steps",
+        "n_eval_eps",
+        "save_root",
+        "resume_folder",
+    ]
     ignore_keys = utils.try_key(hyps,'ignore_keys',ignore_keys)
-    resume_folder = utils.try_key(hyps,'resume_folder',None)
+    resume_folder = utils.try_key(hyps,'resume_folder', None)
+    if not in_place: hyps = {**hyps}
     if resume_folder is not None and resume_folder != "":
         checkpt = io.load_checkpoint(resume_folder)
         if checkpt['epoch'] >= hyps['n_epochs'] and verbose:
@@ -51,11 +69,13 @@ def get_resume_checkpt(hyps, verbose=True):
             for k,v in temp_hyps.items():
                 if k not in ignore_keys:
                     hyps[k] = v
-            hyps['seed'] += 1 # For fresh data
+            hyps['seed'] += 54321 # For fresh data
             s = " Restarted training from epoch "+str(checkpt['epoch'])
-            hyps['description'] = utils.try_key(hyps,
-                                                         "description",
-                                                         "")
+            hyps['description'] = utils.try_key(
+                hyps,
+                "description",
+                ""
+            )
             hyps['description'] += s
             hyps['ignore_keys'] = ignore_keys
             return checkpt, hyps
