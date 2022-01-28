@@ -40,12 +40,16 @@ class Recorder:
             hyps["save_root"],
             hyps["exp_name"]
         )
-        hyps['exp_num'] = get_exp_num(
-            hyps['main_path'],
-            hyps['exp_name'],
-            offset=try_key(hyps, "exp_num_offset", 0)
-        )
-        hyps['save_folder'] = get_save_folder(hyps)
+        # exp_num will be present if resuming from a specific checkpt
+        if "exp_num" not in hyps:
+            hyps['exp_num'] = get_exp_num(
+                hyps['main_path'],
+                hyps['exp_name'],
+                offset=try_key(hyps, "exp_num_offset", 0)
+            )
+        # save_folder will be present if resuming from specific checkpt
+        if "save_folder" not in hyps:
+            hyps['save_folder'] = get_save_folder(hyps)
         # Create save folder if one doesn't exist
         if not os.path.exists(hyps['save_folder']):
             os.mkdir(hyps['save_folder'])
