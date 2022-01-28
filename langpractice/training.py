@@ -1,7 +1,9 @@
 from langpractice.experience import ExperienceReplay, DataCollector
 from langpractice.models import * # SimpleCNN, SimpleLSTM
 from langpractice.recorders import Recorder
+from langpractice.utils.save_io import load_checkpoint
 from langpractice.utils.utils import try_key
+from langpractice.utils.training import get_resume_checkpt
 
 from torch.optim import Adam, RMSprop
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -33,6 +35,8 @@ def train(rank, hyps, verbose=True):
         verbose: bool
             determines if the function should print status updates
     """
+    # If resuming, hyperparameters are updated appropriately
+    _, hyps = get_resume_checkpt(hyps)
     # Set random seeds
     hyps['seed'] = try_key(hyps,'seed', int(time.time()))
     torch.manual_seed(hyps["seed"])
@@ -47,7 +51,7 @@ def train(rank, hyps, verbose=True):
     recorder = Recorder(hyps, model)
     # initialize trainer
     trainer = Trainer(hyps, model, recorder, verbose=verbose)
-    if "skip_first_phase" not in hyps or not hyps["skip_first_phase"]:
+    if not try_key(hyps,"skip_first_phase",False) and trainer.phase == 0:
         # Loop training
         exp_name = hyps["exp_name"]
         n_epochs = hyps["lang_epochs"] if exp_name != "test" else 2
@@ -63,7 +67,8 @@ def train(rank, hyps, verbose=True):
     trainer.optim = trainer.get_optimizer(
         model,
         hyps["optim_type"],
-        hyps["lr"]
+        hyps["lr"],
+        try_key(hyps, "resume_folder", None)
     )
     n_epochs = hyps["actn_epochs"] if hyps["exp_name"] != "test" else 2
     s = "\n\nBeginning Second Phase " + str(trainer.phase)
@@ -88,7 +93,34 @@ def make_model(hyps):
         hyps: dict
             dict of hyperparameters. See `README.md` for details
     """
-    return globals()[hyps["model_type"]](**hyps).to(DEVICE)
+    model = globals()[hyps["model_type"]](**hyps).to(DEVICE)
+    folder = try_key(hyps, "resume_folder", None)
+    if folder is not None and folder != "":
+        checkpt, _ = get_resume_checkpt(hyps, in_place=False)
+        model.load_state_dict(checkpt["state_dict"])
+    return model
+
+def resume_epoch(trainer):
+    """
+    If the training is resuming from a checkpoint and the phase of the
+    checkpoint matches the phase of the trainer, then this function
+    returns the epoch of the resumed checkpoint
+
+    Args:
+        trainer: Trainer
+            a Trainer object. Must have valid hyps member
+    Returns:
+        epoch: int
+            if the phase of the trainer and the checkpoint match, this
+            will be the epoch of the checkpoint. In all other cases,
+            defaults to 0.
+    """
+    folder = try_key(trainer.hyps, "resume_folder", "")
+    if folder is not None and folder != "":
+        checkpt = load_checkpoint(folder)
+        if checkpt["phase"] == trainer.phase:
+            return try_key(checkpt,"epoch",0)
+    return 0
 
 def training_loop(n_epochs,data_collector,trainer,model,verbose=True):
     """
@@ -103,7 +135,10 @@ def training_loop(n_epochs,data_collector,trainer,model,verbose=True):
     """
     if trainer.hyps["exp_name"] == "test":
         trainer.hyps["n_val_samples"] = 1
-    for epoch in range(n_epochs):
+    # Potentially modify starting epoch for resumption of previous
+    # training. Defaults to 0 if not resuming or not same phase
+    start_epoch = resume_epoch(trainer)
+    for epoch in range(start_epoch, n_epochs):
         if verbose:
             print()
             print("Phase:",
@@ -148,11 +183,12 @@ class Trainer:
         #    the phase of the training (is it (0) training the
         #    language network or (1) training the action network or
         #    (2) both together)
-        self.phase = 0 # used to determine type of training
+        self.phase = self.init_phase()
         self.optim = self.get_optimizer(
             self.model,
             self.hyps["optim_type"],
-            self.hyps["lr"]
+            self.hyps["lr"],
+            try_key(self.hyps, "resume_folder", None)
         )
         self.scheduler = ReduceLROnPlateau(
             self.optim,
@@ -163,10 +199,28 @@ class Trainer:
         )
         self.loss_fxn = globals()[self.hyps["loss_fxn"]]()
 
-    def get_optimizer(self, model, optim_type, lr, *args, **kwargs):
+    def init_phase(self):
+        """
+        Initializes the phase of the training depending on if the
+        training is resuming from a checkpoint.
+
+        Returns:
+            phase: int
+                either 0 or the phase that the resume model left off at
+                during its previous training
+        """
+        folder = try_key(self.hyps, "resume_folder", "")
+        if folder is None or folder == "":
+            checkpt = load_checkpoint(folder)
+            return try_key(checkpt, "phase", 0)
+        return 0
+
+    def get_optimizer(self, model, optim_type, lr, resume_folder=""):
         """
         Initializes an optimizer using the model parameters and the
-        hyperparameters.
+        hyperparameters. If a resume_folder is argued and the phase
+        of the resume folder matches the current phase, then the
+        optim_state_dict will be loaded from the resume folder.
     
         Args:
             model: Model or torch.Module
@@ -176,11 +230,26 @@ class Trainer:
                 the type of optimizer. 
             lr: float
                 the learning rate
+            resume_folder: str (optional)
+                a model folder to resume training from. if a valid
+                path is argued and the phase of the last checkpt is
+                the same as the current phase, the optimizer loads
+                thes saved optim_dict
         Returns:
             optim: torch optimizer
                 the model optimizer
         """
-        return globals()[optim_type](list(model.parameters()), lr=lr)
+        optimizer = globals()[optim_type](
+            list(model.parameters()),
+            lr=lr
+        )
+        if resume_folder is not None and resume_folder != "":
+            checkpt = load_checkpoint(resume_folder)
+            if try_key(checkpt, "phase", None) == self.phase:
+                optimizer.load_state_dict(checkpt["optim_state_dict"])
+            elif try_key(checkpt["stats"],"phase",None) == self.phase:
+                optimizer.load_state_dict(checkpt["optim_state_dict"])
+        return optimizer
 
     def reset_model(self, model, batch_size):
         """
