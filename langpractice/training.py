@@ -64,7 +64,7 @@ def train(rank, hyps, verbose=True):
         )
     trainer.phase = hyps["second_phase"]
     # Fresh optimizer
-    trainer.optim = trainer.get_optimizer(
+    trainer.set_optimizer_and_scheduler(
         model,
         hyps["optim_type"],
         hyps["lr"],
@@ -184,18 +184,11 @@ class Trainer:
         #    language network or (1) training the action network or
         #    (2) both together)
         self.phase = self.init_phase()
-        self.optim = self.get_optimizer(
+        self.set_optimizer_and_scheduler(
             self.model,
             self.hyps["optim_type"],
             self.hyps["lr"],
             try_key(self.hyps, "resume_folder", None)
-        )
-        self.scheduler = ReduceLROnPlateau(
-            self.optim,
-            'min',
-            factor=0.5,
-            patience=6,
-            verbose=self.verbose
         )
         self.loss_fxn = globals()[self.hyps["loss_fxn"]]()
 
@@ -215,13 +208,20 @@ class Trainer:
             return try_key(checkpt, "phase", 0)
         return 0
 
-    def get_optimizer(self, model, optim_type, lr, resume_folder=""):
+    def set_optimizer_and_scheduler(self,
+                                    model,
+                                    optim_type,
+                                    lr,
+                                    resume_folder=""):
         """
         Initializes an optimizer using the model parameters and the
-        hyperparameters. If a resume_folder is argued and the phase
+        hyperparameters. Also sets a scheduler for the optimizer's
+        learning rate.
+
+        If a resume_folder is argued and the phase
         of the resume folder matches the current phase, then the
         optim_state_dict will be loaded from the resume folder.
-    
+
         Args:
             model: Model or torch.Module
                 any object that implements a `.parameters()` member
@@ -239,17 +239,28 @@ class Trainer:
             optim: torch optimizer
                 the model optimizer
         """
-        optimizer = globals()[optim_type](
+        self.optim = globals()[optim_type](
             list(model.parameters()),
             lr=lr
         )
         if resume_folder is not None and resume_folder != "":
             checkpt = load_checkpoint(resume_folder)
+            # If same phase, then we want to load the state dict
+            # otherwise it means that we originally resumed from phase
+            # 0 and now we're past that so we won't want to load the sd
             if try_key(checkpt, "phase", None) == self.phase:
-                optimizer.load_state_dict(checkpt["optim_state_dict"])
+                self.optim.load_state_dict(checkpt["optim_state_dict"])
             elif try_key(checkpt["stats"],"phase",None) == self.phase:
-                optimizer.load_state_dict(checkpt["optim_state_dict"])
-        return optimizer
+                self.optim.load_state_dict(checkpt["optim_state_dict"])
+
+        self.scheduler = ReduceLROnPlateau(
+            self.optim,
+            mode='min',
+            factor=try_key(self.hyps,"factor", 0.5),
+            patience=try_key(self.hyps, "patience", 5),
+            threshold=try_key(self.hyps, "threshold", 0.01),
+            verbose=self.verbose
+        )
 
     def reset_model(self, model, batch_size):
         """
@@ -332,6 +343,9 @@ class Trainer:
                 iter_start
             )
             if self.hyps["exp_name"] == "test" and i >= 2: break
+        self.scheduler.step(
+            np.mean(self.recorder.metrics["train_loss"])
+        )
 
     def get_lang_labels(self, n_items, n_targs, max_label):
         """
@@ -823,7 +837,7 @@ def coef_of_var(n_items, n_targs, **kwargs):
         coef_var: float
             the error divided by the average n_targs
     """
-    return n_items.std()/n_targs.mean()
+    return n_items.std()/n_items.mean()
 
 def perc_aligned(n_aligned, n_targs, **kwargs):
     """

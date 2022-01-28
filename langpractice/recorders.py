@@ -123,10 +123,13 @@ class Recorder:
         save_name = "checkpt_phase"+str(phase)
         save_name = os.path.join(self.hyps['save_folder'], save_name)
         save_dict = {
+            "epoch": epoch,
             "phase": phase,
+            "hyps": self.hyps,
             "stats": self.accumulate_stats(),
             "state_dict": model.state_dict(),
             "optim_dict": optim.state_dict(),
+            "current_lr": optim.param_groups[0]["lr"],
         }
         save_dict["stats"]["phase"] = phase
         key = self.hyps["best_by_key"]
@@ -135,7 +138,6 @@ class Recorder:
             is_best = save_dict["stats"][key] < self.best_score
         else:
             is_best = save_dict["stats"][key] > self.best_score
-        save_dict["hyps"] = self.hyps
         save_checkpt(
             save_dict,
             save_name,
@@ -145,7 +147,9 @@ class Recorder:
             best=is_best
         )
         string = self.make_log_string(save_dict["stats"])
-        string = "\nEpoch: "+str(epoch) + " - Phase: "+str(phase) +string
+        s = "\nEpoch: "+str(epoch) + " - Phase: " + str(phase)
+        s = s + " - LR:" + str(save_dict["current_lr"])
+        string = s+string
         if verbose: print(string)
         self.write_to_log(string + "\n\n")
 

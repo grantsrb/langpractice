@@ -177,6 +177,19 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         the name of the class to use for the oracle. i.e. "GordonOracle"
     "optim_type": str
         the name of the class to use for the optimizer. i.e. "Adam"
+    "factor": float
+        the factor to decrease the learning rate by. new_lr = factor*lr
+    "patience": int
+        the number of epochs to wait for loss improvement before
+        reducing the learing rate
+    "threshold": float
+        the threshold by which to determine if the training has
+        plateaued. smaller threshold means smaller changes count as
+        meaningful progress in the training. This is proportional to
+        the size of the loss.
+        loss_to_beat = best_actual_loss*(1-threshold)
+        If loss_to_beat is further away from actual loss, then a
+        learning rate change is more likely to occur.
     "loss_fxn": str
         the name of the class to use for the loss function. i.e.
         "CrossEntropyLoss"
