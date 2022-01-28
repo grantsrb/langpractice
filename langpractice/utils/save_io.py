@@ -56,7 +56,8 @@ def delete_sds(checkpt_path):
     """
     if not os.path.exists(checkpt_path): return
     checkpt = load_checkpoint(checkpt_path)
-    for key in checkpt.keys():
+    keys = list(checkpt.keys())
+    for key in keys:
         if "state_dict" in key or "optim_dic" in key:
             del checkpt[key]
     torch.save(checkpt, checkpt_path)
