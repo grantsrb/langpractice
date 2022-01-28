@@ -20,6 +20,7 @@ class Model(torch.nn.Module):
         n_lang_denses=1,
         h_size=128,
         bnorm=False,
+        lnorm=False,
         conv_noise=0,
         dense_noise=0,
         *args, **kwargs
@@ -38,6 +39,15 @@ class Model(torch.nn.Module):
                 the size of the hidden dimension for the dense layers
             bnorm: bool
                 if true, the model uses batch normalization
+            lnorm: bool
+                if true, the model uses layer normalization before
+                and after the recurrent cell
+            conv_noise: float
+                the standard deviation of noise added after each
+                convolutional operation
+            dense_noise: float
+                the standard deviation of noise added after each
+                dense operation (except for the output)
         """
         super().__init__()
         self.inpt_shape = inpt_shape
@@ -45,6 +55,7 @@ class Model(torch.nn.Module):
         self.lang_size = lang_size
         self.h_size = h_size
         self.bnorm = bnorm
+        self.lnorm = lnorm
         self.conv_noise = conv_noise
         self.dense_noise = dense_noise
         self.n_lang_denses = n_lang_denses
@@ -320,6 +331,9 @@ class SimpleLSTM(Model):
 
         print("lang_denses:", self.n_lang_denses)
         # Memory
+        if self.lnorm:
+            self.layernorm_c = nn.LayerNorm(self.h_size)
+            self.layernorm_h = nn.LayerNorm(self.h_size)
         self.h = None
         self.c = None
         self.reset(batch_size=1)
@@ -392,7 +406,10 @@ class SimpleLSTM(Model):
             self.c = self.c.to(x.get_device())
         fx = self.features(x)
         fx = fx.reshape(len(x), -1) # (B, N)
-        self.h, self.c = self.lstm(fx, (self.h, self.c))
+        self.h, self.c = self.lstm( fx, (self.h, self.c) )
+        if self.lnorm:
+            self.c = self.layernorm_c(self.c)
+            self.h = self.layernorm_h(self.h)
         langs = []
         for dense in self.lang_denses:
             langs.append(dense(self.h))

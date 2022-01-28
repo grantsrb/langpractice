@@ -186,9 +186,10 @@ class Trainer:
         self.scheduler = ReduceLROnPlateau(
             self.optim,
             mode='min',
-            factor=try_key(self.hyps,"factor", 0.5),
-            patience=try_key(self.hyps, "patience", 5),
-            threshold=try_key(self.hyps, "threshold", 0.01),
+            factor=try_key(self.hyps,"factor", 0.9),
+            patience=try_key(self.hyps, "patience", 10),
+            threshold=try_key(self.hyps, "threshold", 0.0001),
+            min_lr=try_key(self.hyps, "min_lr", 0),
             verbose=self.verbose
         )
 
