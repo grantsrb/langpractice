@@ -116,6 +116,13 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
     "bnorm": bool
         determines if the model should use batchnorm. true means it
         does use batchnorm
+    "lnorm": bool
+        determines if the model should use layernorm. true means it
+        does use layernorm on both the h and c recurrent vectors just
+        after the lstm cell. Not that using the layernorm after the
+        cell still results in a normalized input for the next step
+        in time while normalizing the input for the action and language
+        networks.
     "n_frame_stack": int
         the number of frames to stack for an observation of the game
     "lr": float
@@ -194,6 +201,8 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         loss_to_beat = best_actual_loss*(1-threshold)
         If loss_to_beat is further away from actual loss, then a
         learning rate change is more likely to occur.
+    "min_lr": float
+        the minimum learning rate allowed by the scheduler
     "loss_fxn": str
         the name of the class to use for the loss function. i.e.
         "CrossEntropyLoss"

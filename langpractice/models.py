@@ -40,8 +40,8 @@ class Model(torch.nn.Module):
             bnorm: bool
                 if true, the model uses batch normalization
             lnorm: bool
-                if true, the model uses layer normalization before
-                and after the recurrent cell
+                if true, the model uses layer normalization on the h
+                and c recurrent vectors after the recurrent cell
             conv_noise: float
                 the standard deviation of noise added after each
                 convolutional operation
