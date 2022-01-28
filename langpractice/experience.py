@@ -461,10 +461,12 @@ class ValidationRunner(Runner):
             model: torch Module
             n_tsteps: int or None
                 number of steps to rollout. must not be None if n_eps
-                is None
+                is None. if both n_tsteps and n_eps are not None, the
+                rollout ends at the sooner of the two.
             n_eps: int or None
                 number of episodes to rollout. must not be None if
-                n_tsteps is None
+                n_tsteps is None. if both n_tsteps and n_eps are not
+                None, the rollout ends at the sooner of the two.
         Returns:
             data: dict
                 keys: str
@@ -515,9 +517,12 @@ class ValidationRunner(Runner):
             model.h, model.c = self.h_bookmark
         prev_h = self.h_bookmark
         with torch.no_grad():
-            loop_count = 0
-            max_count = n_tsteps if n_eps is None else n_eps
-            while loop_count < max_count:
+            ep_count = 0
+            step_count = 0
+            assert n_tsteps is not None or n_eps is not None
+            n_tsteps = np.inf if n_tsteps is None else n_tsteps
+            n_eps = np.inf if n_eps is None else n_eps
+            while ep_count < n_eps and step_count < n_tsteps:
                 # Collect the state of the environment
                 t_state = torch.FloatTensor(state) # (C, H, W)
                 data["states"].append(t_state)
@@ -554,7 +559,8 @@ class ValidationRunner(Runner):
                 data["n_aligned"].append(info["n_aligned"])
                 data["grabs"].append(info["grab"])
                 if self.hyps["render"]: self.env.render()
-                loop_count += int(n_tsteps is not None or done)
+                ep_count += int(done)
+                step_count += 1
         self.state_bookmark = state
         self.h_bookmark = (model.h.data, model.c.data)
         data["actn_preds"] = torch.cat(data["actn_preds"], dim=0) #(S,A)

@@ -164,10 +164,14 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         the number of validation loops to perform per training epoch
     "n_eval_eps": int or null
         the number of episodes to collect for evaluation during one
-        validation loop. if null, n_eval_steps must be not null
+        validation loop. if null, n_eval_steps must be not null. If
+        both n_eval_eps and n_eval_steps are not None, the validation
+        collection will end at whichever comes sooner.
     "n_eval_steps": int
         the number of environment steps to collect for evaluation
         during one validation loop. if null, n_eval_eps must be not null
+        If both n_eval_eps and n_eval_steps are not None, the validation
+        collection will end at whichever comes sooner.
     "randomize_order": bool
         determines if the order of data during training should be
         randomized. the order of a sequence within the batch is
