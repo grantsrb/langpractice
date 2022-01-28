@@ -273,7 +273,7 @@ class Trainer:
             )
             if self.hyps["exp_name"] == "test" and i >= 2: break
         self.scheduler.step(
-            np.mean(self.recorder.metrics["train_acc"])
+            np.mean(self.recorder.metrics["train_loss"])
         )
 
     def get_lang_labels(self, n_items, n_targs, max_label):
