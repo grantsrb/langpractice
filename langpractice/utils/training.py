@@ -58,10 +58,21 @@ def get_resume_checkpt(hyps, in_place=False, verbose=True):
     ]
     ignore_keys = utils.try_key(hyps,'ignore_keys',ignore_keys)
     resume_folder = utils.try_key(hyps,'resume_folder', None)
-    if not in_place: hyps = {**hyps}
+    if not in_place: 
+        hyps = {**hyps}
     if resume_folder is not None and resume_folder != "":
         checkpt = io.load_checkpoint(resume_folder)
-        if checkpt['epoch'] >= hyps['n_epochs'] and verbose:
+        if "epoch" not in checkpt:
+            path = io.get_checkpoints(resume_folder)[-1]
+            checkpt["epoch"] = int(path.split(".")[0].split("_")[-1])
+            torch.save(checkpt, checkpt["loaded_path"]) 
+        n_epochs = -1
+        if "phase" in checkpt and checkpt["phase"]==0:
+            n_epochs = hyps["lang_epochs"]
+        elif "phase" in checkpt and checkpt["phase"] > 0:
+            n_epochs = hyps["actn_epochs"]
+        elif "n_epochs" in hyps: n_epochs = hyps["n_epochs"]
+        if verbose and (checkpt['epoch']>=n_epochs or n_epochs == -1):
             print("Could not resume due to epoch count")
             print("Performing fresh training")
         else:
