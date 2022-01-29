@@ -94,10 +94,11 @@ class Recorder:
         """
         stats = {}
         for key in self.metrics.keys():
-            stats[key + "_avg"] = np.mean(self.metrics[key])
-            stats[key + "_std"] = np.std(self.metrics[key])
-            stats[key + "_max"] = np.max(self.metrics[key])
-            stats[key + "_min"] = np.min(self.metrics[key])
+            if len(self.metrics[key]) > 0:
+                stats[key + "_avg"] = np.mean(self.metrics[key])
+                stats[key + "_std"] = np.std(self.metrics[key])
+                stats[key + "_max"] = np.max(self.metrics[key])
+                stats[key + "_min"] = np.min(self.metrics[key])
         return stats
 
     def save_epoch_stats(self, phase, epoch, model, optim, verbose=True):
