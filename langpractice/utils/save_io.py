@@ -81,8 +81,8 @@ def get_checkpoints(folder, checkpt_exts={'p', 'pt', 'pth'}):
     Returns all .p, .pt, and .pth file names contained within the
     folder. They're sorted by their epoch.
 
-    BEST_CHECKPT_PATH is not included in this list. It is excluded by
-    its extension ".best"
+    BEST_CHECKPT_PATH is not included in this list. It is excluded using
+    the assumption that it has the extension ".best"
 
     folder: str
         path to the folder of interest
@@ -99,7 +99,16 @@ def get_checkpoints(folder, checkpt_exts={'p', 'pt', 'pth'}):
         if len(splt) > 1 and splt[-1] in checkpt_exts:
             path = os.path.join(folder,f)
             checkpts.append(path)
-    sort_key = lambda x: int(x.split(".")[-2].split("_")[-1])
+    def sort_key(x):
+        phase = -1
+        splt = x.split("phase")
+        if len(splt) >= 1:
+            try:
+                phase = int(splt[-1].split("_")[0])
+            except:
+                pass
+        epoch = int(x.split(".")[-2].split("_")[-1])
+        return (phase, epoch)
     checkpts = sorted(checkpts, key=sort_key)
     return checkpts
 
