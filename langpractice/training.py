@@ -203,7 +203,7 @@ class Trainer:
                 during its previous training
         """
         folder = try_key(self.hyps, "resume_folder", "")
-        if folder is None or folder == "":
+        if folder is not None or folder != "":
             checkpt = load_checkpoint(folder)
             return try_key(checkpt, "phase", 0)
         return 0
@@ -220,7 +220,7 @@ class Trainer:
 
         If a resume_folder is argued and the phase
         of the resume folder matches the current phase, then the
-        optim_state_dict will be loaded from the resume folder.
+        optim_dict will be loaded from the resume folder.
 
         Args:
             model: Model or torch.Module
@@ -249,9 +249,9 @@ class Trainer:
             # otherwise it means that we originally resumed from phase
             # 0 and now we're past that so we won't want to load the sd
             if try_key(checkpt, "phase", None) == self.phase:
-                self.optim.load_state_dict(checkpt["optim_state_dict"])
+                self.optim.load_state_dict(checkpt["optim_dict"])
             elif try_key(checkpt["stats"],"phase",None) == self.phase:
-                self.optim.load_state_dict(checkpt["optim_state_dict"])
+                self.optim.load_state_dict(checkpt["optim_dict"])
 
         self.scheduler = ReduceLROnPlateau(
             self.optim,
