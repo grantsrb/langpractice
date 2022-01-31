@@ -6,3 +6,7 @@ h5py
 scikit-image
 opencv-python
 pandas
+gym
+mlagents
+mlagents_envs
+gym_unity
