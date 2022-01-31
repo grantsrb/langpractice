@@ -168,7 +168,16 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         number of steps to take in the environment for a single row
         in the batch during data collection.
     "n_val_samples": int
-        the number of validation loops to perform per training epoch
+        the number of validation loops to perform per training epoch.
+    "iso_targ_samples": int
+        if true, the number of targets for each validation sampling
+        is equal to 1+ the sampling index. So, if n_val_samples is
+        equal to 5 and `iso_targ_samples` is true, then the first
+        sampling will only use n_targs equal to 1. Then the second
+        sampling will use n_targs equal to 2, and the third uses 
+        n_targs equal to 3, etc.
+        If false, the number of targets will be randomized according
+        to the environment being used.
     "n_eval_eps": int or null
         the number of episodes to collect for evaluation during one
         validation loop. if null, n_eval_steps must be not null. If

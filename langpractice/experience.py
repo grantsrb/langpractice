@@ -448,7 +448,29 @@ class ValidationRunner(Runner):
         self.ep_rew = 0
         self.oracle = globals()[self.hyps["oracle_type"]](**self.hyps)
 
-    def rollout(self, phase, model, n_tsteps, n_eps=None):
+    def init_env(n_targs=None):
+        """
+        Handles the initialization of the environment.
+
+        Args:
+            n_targs: int or None
+                the desired number of targets for all episodes. if
+                None, defaults to the self.hyps["targ_range"]
+        """
+        hyps = self.hyps
+        if n_targs is not None:
+            hyps = {**self.hyps, "targ_range": (n_targs, n_targs)}
+        self.env = SequentialEnvironment(**hyps)
+        state = next_state(
+            self.env,
+            self.obs_deque,
+            obs=None,
+            reset=True
+        )
+        self.state_bookmark = state
+        self.h_bookmark = None
+
+    def rollout(self, phase, model, n_tsteps, n_eps=None, n_targs=None):
         """
         rollout handles the actual rollout of the environment. It runs
         for n steps in the game using the model to determine actions
@@ -467,6 +489,9 @@ class ValidationRunner(Runner):
                 number of episodes to rollout. must not be None if
                 n_tsteps is None. if both n_tsteps and n_eps are not
                 None, the rollout ends at the sooner of the two.
+            n_targs: int or None
+                optional argument to specify the number of targets for
+                the collected episodes
         Returns:
             data: dict
                 keys: str
@@ -510,11 +535,14 @@ class ValidationRunner(Runner):
             "grabs": [],
         }
         model.eval()
+        # Reset every on every validation run
+        model.reset(1)
+        self.init_env(n_targs=n_targs)
+
+        # bookmarks are really unnecessary because we reset the env
+        # every time we validate. But it was easier to leave the
+        # bookmarks to get the code working quicker
         state = self.state_bookmark
-        if self.h_bookmark is None:
-            model.reset(1)
-        else:
-            model.h, model.c = self.h_bookmark
         prev_h = self.h_bookmark
         with torch.no_grad():
             ep_count = 0

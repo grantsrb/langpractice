@@ -119,8 +119,15 @@ def training_loop(n_epochs,data_collector,trainer,model,verbose=True):
         trainer.train(model, data_collector.exp_replay)
         data_collector.dispatch_runners()
         if verbose: print("\nValidating")
+        n_targs = None
         for val_sample in tqdm(range(trainer.hyps["n_val_samples"])):
-            trainer.validate(epoch, model, data_collector)
+            if try_key(trainer.hyps, "iso_val_samples", True):
+                n_targs = val_sample + 1
+            trainer.validate(epoch,
+                model,
+                data_collector,
+                n_targs=val_sample
+            )
         trainer.end_epoch(epoch)
 
 class Trainer:
@@ -557,7 +564,7 @@ class Trainer:
         )
         print(s, end=len(s)//4*" " + "\r")
 
-    def validate(self, epoch, model, data_collector):
+    def validate(self, epoch, model, data_collector, n_targs=None):
         """
         Validates the performance of the model directly on an
         environment. Steps the learning rate scheduler based on the
@@ -575,7 +582,8 @@ class Trainer:
                 self.phase,
                 model,
                 n_tsteps=self.hyps["n_eval_steps"],
-                n_eps=self.hyps["n_eval_eps"]
+                n_eps=self.hyps["n_eval_eps"],
+                n_targs=n_targs
             )
             lang_labels = self.get_lang_labels(
                 eval_data["n_items"],
