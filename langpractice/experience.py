@@ -457,7 +457,8 @@ class ValidationRunner(Runner):
 
         Args:
             phase: int
-                the phase of the training
+                the phase of the training. phase 1 and 2 are treated
+                the same. phase 0 uses the oracle for actions.
             model: torch Module
             n_tsteps: int or None
                 number of steps to rollout. must not be None if n_eps
