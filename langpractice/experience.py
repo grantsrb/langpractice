@@ -432,8 +432,10 @@ class ValidationRunner(Runner):
         self.hyps["targ_range"] = try_key(
             self.hyps,
             "val_targ_range",
-            self.hyps["targ_range"]
+            None
         )
+        if self.hyps["val_targ_range"] is None:
+            self.hyps["val_targ_range"] = self.hyps["targ_range"]
         print("validation runner target range:",self.hyps["targ_range"])
         self.obs_deque = deque(maxlen=hyps['n_frame_stack'])
         self.env = SequentialEnvironment(**self.hyps)
@@ -567,7 +569,12 @@ class ValidationRunner(Runner):
                     lang = torch.stack(lang_pred, dim=0)
                 # lang: (N,1,L)
                 data["lang_preds"].append(lang)
-                actn = sample_action(F.softmax(actn_pred, dim=-1)).item()
+                if try_key(self.hyps, "val_max_actn", False):
+                    actn = torch.argmax(actn_pred[0]).item()
+                else:
+                    actn = sample_action(
+                        F.softmax(actn_pred, dim=-1)
+                    ).item()
                 # get target action
                 targ = self.oracle(self.env)
                 data["actn_targs"].append(targ)

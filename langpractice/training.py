@@ -121,7 +121,7 @@ def training_loop(n_epochs,data_collector,trainer,model,verbose=True):
         if verbose: print("\nValidating")
         n_targs = None
         for val_sample in tqdm(range(trainer.hyps["n_val_samples"])):
-            if try_key(trainer.hyps, "iso_val_samples", True):
+            if try_key(trainer.hyps, "isolate_val_targs", True):
                 n_targs = val_sample + 1
             trainer.validate(epoch,
                 model,

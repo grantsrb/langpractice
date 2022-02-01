@@ -167,12 +167,22 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         the "experience" length for a single rollout. This is the
         number of steps to take in the environment for a single row
         in the batch during data collection.
+
+    "val_targ_range": list of ints (low, high) or None
+        the range of potential target counts during the validation
+        phase. both low and high are inclusive. only applies to
+        gordongames variants. if None, defaults to training range.
+    "val_max_actn": bool
+        if true, actions during the validation phase are selected as
+        the maximum argument over the model's action probability output.
+        If False, actions are sampled from the action output with
+        probability equal to the corresponding output probability
     "n_val_samples": int
         the number of validation loops to perform per training epoch.
-    "iso_targ_samples": int
+    "isolate_val_targs": int
         if true, the number of targets for each validation sampling
         is equal to 1+ the sampling index. So, if n_val_samples is
-        equal to 5 and `iso_targ_samples` is true, then the first
+        equal to 5 and `isolate_val_targs` is true, then the first
         sampling will only use n_targs equal to 1. Then the second
         sampling will use n_targs equal to 2, and the third uses 
         n_targs equal to 3, etc.
