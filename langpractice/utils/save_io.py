@@ -138,12 +138,14 @@ def is_model_folder(path, exp_name=None):
     check_folder = os.path.expanduser(path)
     if exp_name is not None:
         exp_splt = exp_name.split("_")
+        # Remove ending slash if there is one
         if check_folder[-1]=="/": check_folder = check_folder[:-1]
         folder_splt = check_folder.split("/")
         folder_splt = folder_splt[-1].split("_")
         match = True
         for i in range(len(exp_splt)):
-            if exp_splt[i] != folder_splt[i]: match = False
+            if i<len(folder_splt) and exp_splt[i] != folder_splt[i]:
+                match = False
         if match: return True
     contents = os.listdir(check_folder)
     for content in contents:
