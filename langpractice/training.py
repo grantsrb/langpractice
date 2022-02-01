@@ -134,7 +134,7 @@ def training_loop(n_epochs,data_collector,trainer,model,verbose=True):
         trainer.end_epoch(epoch)
         trn_whls_epoch = try_key(trainer.hyps, "trn_whls_epoch", np.inf)
         if trainer.phase != 0 and epoch >= trn_whls_epoch:
-            model.training_wheels = 0
+            model.trn_whls = 0
 
 class Trainer:
     """

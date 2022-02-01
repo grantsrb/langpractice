@@ -59,17 +59,17 @@ class Model(torch.nn.Module):
         self.conv_noise = conv_noise
         self.dense_noise = dense_noise
         self.n_lang_denses = n_lang_denses
-        self.register_buffer("_training_wheels", torch.ones(1))
+        self.register_buffer("_trn_whls", torch.ones(1))
 
     @property
     def is_cuda(self):
         try:
-            return self._training_wheels.is_cuda
+            return self._trn_whls.is_cuda
         except:
             return False
 
     @property
-    def training_wheels(self):
+    def trn_whls(self):
         """
         This is essentially a boolean used to communicate if the
         runners should use the model predictions or the oracle
@@ -80,12 +80,12 @@ class Model(torch.nn.Module):
                 if 1, then the training wheels are still on the bike.
                 if 0, then that sucker is free to shred
         """
-        if hasattr(self,"_training_wheels"):
-            return self._training_wheels.item()
+        if hasattr(self,"_trn_whls"):
+            return self._trn_whls.item()
         return 1
 
-    @training_wheels.setter
-    def training_wheels(self, status):
+    @trn_whls.setter
+    def trn_whls(self, status):
         """
         Sets the status of the training wheels
 
@@ -97,7 +97,7 @@ class Model(torch.nn.Module):
                 the model but still use the oracle's actions as the
                 labels.
         """
-        self._training_wheels[0] = status
+        self._trn_whls[0] = status
 
     def get_device(self):
         try:

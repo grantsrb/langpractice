@@ -416,7 +416,7 @@ class Runner:
             self.shared_exp["obs"][idx,i] = t_state
             # Get actn
             actn_targ = self.oracle(self.env, state=t_state) # int
-            if self.model.training_wheels == 1:
+            if self.model.trn_whls == 1:
                 actn = actn_targ
             else:
                 inpt = t_state[None].to(DEVICE)
