@@ -448,7 +448,7 @@ class ValidationRunner(Runner):
         self.ep_rew = 0
         self.oracle = globals()[self.hyps["oracle_type"]](**self.hyps)
 
-    def init_env(n_targs=None):
+    def init_env(self, n_targs=None):
         """
         Handles the initialization of the environment.
 
