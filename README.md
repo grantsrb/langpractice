@@ -85,6 +85,11 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         The number of training epochs for the language training phase
     "actn_epochs": int
         The number of training epochs for the action training phase
+    "trn_whls_epoch": int
+        the epoch in which the training wheels are removed from the
+        model. This means that the training data is collected using
+        the actions from the model. The action targets continue to be
+        those produced by the oracle.
 
     "use_count_words": int [0, 1, or 2]
         this determines what type of count words should be used. If 0,

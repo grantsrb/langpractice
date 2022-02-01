@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 import torch.multiprocessing as mp
 import numpy as np
+from langpractice.models import NullModel
 from langpractice.envs import SequentialEnvironment
 from langpractice.oracles import *
 from langpractice.utils.utils import try_key, sample_action
@@ -278,10 +279,20 @@ class DataCollector:
                 self.stop_q,
             )
             self.runners.append(runner)
+
         # Initiate Data Collection
+    def init_runner_procs(self, model):
+        """
+        Initializes the runner processes
+
+        Args:
+            model: torch Module
+                make sure the model's weights are shared so that they
+                can be updated over the course of the training.
+        """
         self.procs = []
         for i in range(len(self.runners)):
-            proc = mp.Process(target=self.runners[i].run)
+            proc = mp.Process(target=self.runners[i].run, args=(model,))
             self.procs.append(proc)
             proc.start()
 
@@ -351,7 +362,7 @@ class Runner:
         env_type = self.hyps['env_type']
         self.oracle = globals()[self.hyps["oracle_type"]](env_type)
 
-    def run(self):
+    def run(self, model=None):
         """
         run is the entry function to begin collecting rollouts from the
         environment. gate_q indicates when to begin collecting a
@@ -359,6 +370,9 @@ class Runner:
         used to indicate to the main process that a new rollout has
         been collected.
         """
+        self.model = model
+        if model is None:
+            self.model = NullModel(**self.hyps)
         self.env = SequentialEnvironment(**self.hyps)
         state = next_state(
             self.env,
@@ -367,11 +381,16 @@ class Runner:
             reset=True
         )
         self.state_bookmark = state
+        self.h_bookmark = None
         self.ep_rew = 0
         while True:
-            idx = self.gate_q.get() # Opened from main process
-            self.rollout(idx)
-            self.stop_q.put(idx) # Signals to main process that data has been collected
+            with torch.no_grad():
+                idx = self.gate_q.get() # Opened from main process
+                self.model.cuda()
+                self.rollout(idx)
+                self.model.cpu()
+                # Signals to main process that data has been collected
+                self.stop_q.put(idx)
 
     def rollout(self, idx):
         """
@@ -385,19 +404,32 @@ class Runner:
                 shared_exp designated for this rollout
         """
         state = self.state_bookmark
+        self.model.eval()
+        if self.h_bookmark is None:
+            self.model.reset(1)
+        else:
+            self.model.h, self.model.c = self.h_bookmark
         exp_len = self.hyps['exp_len']
         for i in range(exp_len):
             # Collect the state of the environment
             t_state = torch.FloatTensor(state) # (C, H, W)
             self.shared_exp["obs"][idx,i] = t_state
-            # Get oracle's actn
-            actn = self.oracle(self.env, state=t_state) # int
+            # Get actn
+            actn_targ = self.oracle(self.env, state=t_state) # int
+            if self.model.training_wheels == 1:
+                actn = actn_targ
+            else:
+                inpt = t_state[None].to(DEVICE)
+                actn_pred, _ = self.model.step(inpt)
+                actn = sample_action(
+                    F.softmax(actn_pred, dim=-1)
+                ).item()
             # Step the environment
             obs, rew, done, info = self.env.step(actn)
             # Collect data
             self.shared_exp['rews'][idx,i] = rew
             self.shared_exp['dones'][idx,i] = float(done)
-            self.shared_exp['actns'][idx,i] = actn
+            self.shared_exp['actns'][idx,i] = actn_targ
             if "n_targs" in info:
                 self.shared_exp["n_targs"][idx,i] = info["n_targs"]
                 self.shared_exp["n_items"][idx,i] = info["n_items"]
@@ -411,7 +443,10 @@ class Runner:
                 obs=obs,
                 reset=done
             )
+            if done: self.model.reset(1)
         self.state_bookmark = state
+        if hasattr(self.model, "h"):
+            self.h_bookmark = (self.model.h, self.model.c)
 
 class ValidationRunner(Runner):
     def __init__(self, hyps):
@@ -546,7 +581,6 @@ class ValidationRunner(Runner):
         # every time we validate. But it was easier to leave the
         # bookmarks to get the code working quicker
         state = self.state_bookmark
-        prev_h = self.h_bookmark
         with torch.no_grad():
             ep_count = 0
             step_count = 0

@@ -37,12 +37,15 @@ def train(rank, hyps, verbose=True):
     hyps['seed'] = try_key(hyps,'seed', int(time.time()))
     torch.manual_seed(hyps["seed"])
     np.random.seed(hyps["seed"])
-    # Initialize Data Collector and Begin Collecting Data
+    # Initialize Data Collector
     # DataCollector's Initializer does Important changes to hyps
     data_collector = DataCollector(hyps)
     data_collector.dispatch_runners()
     # Initialize model
     model = make_model(hyps)
+    model.share_memory()
+    # Begin collecting data
+    data_collector.init_runner_procs(model)
     # Record experiment settings
     recorder = Recorder(hyps, model)
     # initialize trainer
@@ -129,6 +132,9 @@ def training_loop(n_epochs,data_collector,trainer,model,verbose=True):
                 n_targs=val_sample
             )
         trainer.end_epoch(epoch)
+        trn_whls_epoch = try_key(trainer.hyps, "trn_whls_epoch", np.inf)
+        if trainer.phase != 0 and epoch >= trn_whls_epoch:
+            model.training_wheels = 0
 
 class Trainer:
     """
