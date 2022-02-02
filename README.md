@@ -85,6 +85,11 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         The number of training epochs for the language training phase
     "actn_epochs": int
         The number of training epochs for the action training phase
+    "trn_whls_epoch": int
+        the epoch in which the training wheels are removed from the
+        model. This means that the training data is collected using
+        the actions from the model. The action targets continue to be
+        those produced by the oracle.
 
     "use_count_words": int [0, 1, or 2]
         this determines what type of count words should be used. If 0,
@@ -167,8 +172,27 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         the "experience" length for a single rollout. This is the
         number of steps to take in the environment for a single row
         in the batch during data collection.
+
+    "val_targ_range": list of ints (low, high) or None
+        the range of potential target counts during the validation
+        phase. both low and high are inclusive. only applies to
+        gordongames variants. if None, defaults to training range.
+    "val_max_actn": bool
+        if true, actions during the validation phase are selected as
+        the maximum argument over the model's action probability output.
+        If False, actions are sampled from the action output with
+        probability equal to the corresponding output probability
     "n_val_samples": int
-        the number of validation loops to perform per training epoch
+        the number of validation loops to perform per training epoch.
+    "isolate_val_targs": int
+        if true, the number of targets for each validation sampling
+        is equal to 1+ the sampling index. So, if n_val_samples is
+        equal to 5 and `isolate_val_targs` is true, then the first
+        sampling will only use n_targs equal to 1. Then the second
+        sampling will use n_targs equal to 2, and the third uses 
+        n_targs equal to 3, etc.
+        If false, the number of targets will be randomized according
+        to the environment being used.
     "n_eval_eps": int or null
         the number of episodes to collect for evaluation during one
         validation loop. if null, n_eval_steps must be not null. If

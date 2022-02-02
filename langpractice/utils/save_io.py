@@ -81,8 +81,8 @@ def get_checkpoints(folder, checkpt_exts={'p', 'pt', 'pth'}):
     Returns all .p, .pt, and .pth file names contained within the
     folder. They're sorted by their epoch.
 
-    BEST_CHECKPT_PATH is not included in this list. It is excluded by
-    its extension ".best"
+    BEST_CHECKPT_PATH is not included in this list. It is excluded using
+    the assumption that it has the extension ".best"
 
     folder: str
         path to the folder of interest
@@ -99,7 +99,16 @@ def get_checkpoints(folder, checkpt_exts={'p', 'pt', 'pth'}):
         if len(splt) > 1 and splt[-1] in checkpt_exts:
             path = os.path.join(folder,f)
             checkpts.append(path)
-    sort_key = lambda x: int(x.split(".")[-2].split("_")[-1])
+    def sort_key(x):
+        phase = -1
+        splt = x.split("phase")
+        if len(splt) >= 1:
+            try:
+                phase = int(splt[-1].split("_")[0])
+            except:
+                pass
+        epoch = int(x.split(".")[-2].split("_")[-1])
+        return (phase, epoch)
     checkpts = sorted(checkpts, key=sort_key)
     return checkpts
 
@@ -129,12 +138,14 @@ def is_model_folder(path, exp_name=None):
     check_folder = os.path.expanduser(path)
     if exp_name is not None:
         exp_splt = exp_name.split("_")
+        # Remove ending slash if there is one
         if check_folder[-1]=="/": check_folder = check_folder[:-1]
         folder_splt = check_folder.split("/")
         folder_splt = folder_splt[-1].split("_")
         match = True
         for i in range(len(exp_splt)):
-            if exp_splt[i] != folder_splt[i]: match = False
+            if i<len(folder_splt) and exp_splt[i] != folder_splt[i]:
+                match = False
         if match: return True
     contents = os.listdir(check_folder)
     for content in contents:
@@ -239,7 +250,15 @@ def load_model(path, models, load_sd=True, use_best=False,
         kwargs = utils.load_json(os.path.join(path, "hyps.json"))
     model = models[kwargs['model_type']](**kwargs)
     if "state_dict" in data and load_sd:
-        model.load_state_dict(data['state_dict'])
+        try:
+            model.load_state_dict(data['state_dict'])
+        except:
+            print("Failed to load state dict, attempting manual load")
+            sd = data["state_dict"]
+            keys = {*sd.keys(), *model.state_dict().keys()}
+            for k in keys:
+                if k not in sd: sd[k] = getattr(model, k)
+                if k not in model: setattr(model, k, sd[k])
     else:
         print("state dict not loaded!")
     return model

@@ -59,13 +59,43 @@ class Model(torch.nn.Module):
         self.conv_noise = conv_noise
         self.dense_noise = dense_noise
         self.n_lang_denses = n_lang_denses
+        self._trn_whls = nn.Parameter(torch.ones(1), requires_grad=False)
 
     @property
     def is_cuda(self):
         try:
-            return next(self.parameters()).is_cuda
+            return self._trn_whls.is_cuda
         except:
             return False
+
+    @property
+    def trn_whls(self):
+        """
+        This is essentially a boolean used to communicate if the
+        runners should use the model predictions or the oracle
+        predictions for training.
+
+        Returns:
+            training_wheel_status: int
+                if 1, then the training wheels are still on the bike.
+                if 0, then that sucker is free to shred
+        """
+        return self._trn_whls.data[0].item()
+
+    @trn_whls.setter
+    def trn_whls(self, status):
+        """
+        Sets the status of the training wheels
+
+        Args:
+            status: int
+                if set to 1, the training wheels are considered on and
+                the data collection will use the oracle. if 0, then
+                the training data collection will use the actions from
+                the model but still use the oracle's actions as the
+                labels.
+        """
+        self._trn_whls.data[0] = status
 
     def get_device(self):
         try:
@@ -120,6 +150,42 @@ class Model(torch.nn.Module):
             lang: torch Float Tensor (B, S, L)
         """
         pass
+
+class NullModel(Model):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def forward(self, x, *args, **kwargs):
+        """
+        Args:
+            x: torch Float Tensor (B, S, C, H, W) or (B,C,H,W)
+        Returns:
+            actn: torch FloatTensor (B, S, A) or (B, A)
+            lang: tuple of torch FloatTensors (B, S, L) or (B, L)
+        """
+        if len(x.shape) == 4:
+            return self.step(x)
+        else:
+            # Action
+            actn = torch.zeros(*x.shape[:2], self.actn_size).float()
+            # Language
+            lang = torch.zeros(*x.shape[:2], self.lang_size).float()
+            if x.is_cuda:
+                actn.cuda()
+                lang.cuda()
+            return actn, (lang,)
+
+    def step(self, x):
+        """
+        Args:
+            x: torch Float Tensor (B, C, H, W)
+        """
+        actn = torch.zeros((x[0], self.actn_size)).float()
+        lang = torch.zeros((x[0], self.lang_size)).float()
+        if self.is_cuda:
+            actn = actn.cuda()
+            lang = lang.cuda()
+        return actn, (lang,)
 
 class RandomModel(Model):
     def __init__(self, *args, **kwargs):

@@ -1,8 +1,6 @@
 import os
 import torch
 import gym
-import gordongames
-import gym_snake
 import numpy as np
 from langpractice.preprocessors import *
 import time
@@ -12,6 +10,15 @@ from mlagents_envs.environment import UnityEnvironment
 from gym_unity.envs import UnityToGymWrapper
 from mlagents_envs.side_channel.engine_configuration_channel import EngineConfigurationChannel
 from mlagents_envs.side_channel.environment_parameters_channel import EnvironmentParametersChannel
+
+try:
+    import gordongames
+except:
+    print("gordongames not installed!")
+try:
+    import gym_snake
+except:
+    print("gym_snake not installed!")
 
 class SequentialEnvironment:
     """
