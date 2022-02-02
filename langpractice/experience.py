@@ -292,9 +292,12 @@ class DataCollector:
         """
         self.procs = []
         for i in range(len(self.runners)):
-            proc = mp.Process(target=self.runners[i].run, args=(model,))
-            self.procs.append(proc)
+            proc = mp.Process(
+                target=self.runners[i].run,
+                args=(model,)
+            )
             proc.start()
+            self.procs.append(proc)
 
     def await_runners(self):
         for i in range(self.hyps["batch_size"]):
@@ -386,13 +389,11 @@ class Runner:
         while True:
             with torch.no_grad():
                 idx = self.gate_q.get() # Opened from main process
-                self.model.cuda()
-                self.rollout(idx)
-                self.model.cpu()
+                self.rollout(idx, self.model)
                 # Signals to main process that data has been collected
                 self.stop_q.put(idx)
 
-    def rollout(self, idx):
+    def rollout(self, idx, model):
         """
         rollout handles the actual rollout of the environment. It runs
         for n steps in the game. Collected data is placed into the
@@ -404,11 +405,15 @@ class Runner:
                 shared_exp designated for this rollout
         """
         state = self.state_bookmark
-        self.model.eval()
+        model.eval()
+        #if idx==0:
+        #    for name,p in model.named_parameters():
+        #        if hasattr(p, "data"):
+        #            print(name, p.reshape(-1)[:3])
         if self.h_bookmark is None:
-            self.model.reset(1)
+            model.reset(1)
         else:
-            self.model.h, self.model.c = self.h_bookmark
+            model.h, model.c = self.h_bookmark
         exp_len = self.hyps['exp_len']
         for i in range(exp_len):
             # Collect the state of the environment
@@ -416,11 +421,11 @@ class Runner:
             self.shared_exp["obs"][idx,i] = t_state
             # Get actn
             actn_targ = self.oracle(self.env, state=t_state) # int
-            if self.model.trn_whls == 1:
+            if model.trn_whls == 1:
                 actn = actn_targ
             else:
                 inpt = t_state[None].to(DEVICE)
-                actn_pred, _ = self.model.step(inpt)
+                actn_pred, _ = model.step(inpt)
                 actn = sample_action(
                     F.softmax(actn_pred, dim=-1)
                 ).item()
@@ -443,10 +448,10 @@ class Runner:
                 obs=obs,
                 reset=done
             )
-            if done: self.model.reset(1)
+            if done: model.reset(1)
         self.state_bookmark = state
-        if hasattr(self.model, "h"):
-            self.h_bookmark = (self.model.h, self.model.c)
+        if hasattr(model, "h"):
+            self.h_bookmark = (model.h, model.c)
 
 class ValidationRunner(Runner):
     def __init__(self, hyps):

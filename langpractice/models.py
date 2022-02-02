@@ -59,7 +59,7 @@ class Model(torch.nn.Module):
         self.conv_noise = conv_noise
         self.dense_noise = dense_noise
         self.n_lang_denses = n_lang_denses
-        self.register_buffer("_trn_whls", torch.ones(1))
+        self._trn_whls = nn.Parameter(torch.ones(1), requires_grad=False)
 
     @property
     def is_cuda(self):
@@ -80,9 +80,7 @@ class Model(torch.nn.Module):
                 if 1, then the training wheels are still on the bike.
                 if 0, then that sucker is free to shred
         """
-        if hasattr(self,"_trn_whls"):
-            return self._trn_whls.item()
-        return 1
+        return self._trn_whls.data[0].item()
 
     @trn_whls.setter
     def trn_whls(self, status):
@@ -97,7 +95,7 @@ class Model(torch.nn.Module):
                 the model but still use the oracle's actions as the
                 labels.
         """
-        self._trn_whls[0] = status
+        self._trn_whls.data[0] = status
 
     def get_device(self):
         try:

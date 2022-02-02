@@ -250,7 +250,15 @@ def load_model(path, models, load_sd=True, use_best=False,
         kwargs = utils.load_json(os.path.join(path, "hyps.json"))
     model = models[kwargs['model_type']](**kwargs)
     if "state_dict" in data and load_sd:
-        model.load_state_dict(data['state_dict'])
+        try:
+            model.load_state_dict(data['state_dict'])
+        except:
+            print("Failed to load state dict, attempting manual load")
+            sd = data["state_dict"]
+            keys = {*sd.keys(), *model.state_dict().keys()}
+            for k in keys:
+                if k not in sd: sd[k] = getattr(model, k)
+                if k not in model: setattr(model, k, sd[k])
     else:
         print("state dict not loaded!")
     return model

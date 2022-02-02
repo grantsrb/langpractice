@@ -11,6 +11,7 @@ import torch
 import numpy as np
 import time
 from tqdm import tqdm
+import copy
 
 if torch.cuda.is_available():
     DEVICE = torch.device("cuda:0")
@@ -40,12 +41,17 @@ def train(rank, hyps, verbose=True):
     # Initialize Data Collector
     # DataCollector's Initializer does Important changes to hyps
     data_collector = DataCollector(hyps)
-    data_collector.dispatch_runners()
     # Initialize model
     model = make_model(hyps)
-    model.share_memory()
+    model.cuda()
+    shared_model = None
+    if try_key(hyps, "trn_whls_epoch", None) is not None:
+        shared_model = model
+        shared_model.share_memory()
+        print("Sharing model with runners")
     # Begin collecting data
-    data_collector.init_runner_procs(model)
+    data_collector.init_runner_procs(shared_model)
+    data_collector.dispatch_runners()
     # Record experiment settings
     recorder = Recorder(hyps, model)
     # initialize trainer
@@ -132,8 +138,9 @@ def training_loop(n_epochs,data_collector,trainer,model,verbose=True):
                 n_targs=val_sample
             )
         trainer.end_epoch(epoch)
-        trn_whls_epoch = try_key(trainer.hyps, "trn_whls_epoch", np.inf)
-        if trainer.phase != 0 and epoch >= trn_whls_epoch:
+        trn_whls = try_key(trainer.hyps, "trn_whls_epoch", None)
+        trn_whls_off = trn_whls is not None and epoch >= trn_whls
+        if trainer.phase != 0 and trn_whls_off:
             model.trn_whls = 0
 
 class Trainer:
