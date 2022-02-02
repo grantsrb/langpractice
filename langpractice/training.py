@@ -13,6 +13,7 @@ import torch
 import numpy as np
 import time
 from tqdm import tqdm
+import copy
 
 if torch.cuda.is_available():
     DEVICE = torch.device("cuda:0")
@@ -41,12 +42,20 @@ def train(rank, hyps, verbose=True):
     hyps['seed'] = try_key(hyps,'seed', int(time.time()))
     torch.manual_seed(hyps["seed"])
     np.random.seed(hyps["seed"])
-    # Initialize Data Collector and Begin Collecting Data
+    # Initialize Data Collector
     # DataCollector's Initializer does Important changes to hyps
     data_collector = DataCollector(hyps)
-    data_collector.dispatch_runners()
     # Initialize model
     model = make_model(hyps)
+    model.cuda()
+    shared_model = None
+    if try_key(hyps, "trn_whls_epoch", None) is not None:
+        shared_model = model
+        shared_model.share_memory()
+        print("Sharing model with runners")
+    # Begin collecting data
+    data_collector.init_runner_procs(shared_model)
+    data_collector.dispatch_runners()
     # Record experiment settings
     recorder = Recorder(hyps, model)
     # initialize trainer
@@ -154,9 +163,20 @@ def training_loop(n_epochs,data_collector,trainer,model,verbose=True):
         trainer.train(model, data_collector.exp_replay)
         data_collector.dispatch_runners()
         if verbose: print("\nValidating")
+        n_targs = None
         for val_sample in tqdm(range(trainer.hyps["n_val_samples"])):
-            trainer.validate(epoch, model, data_collector)
+            if try_key(trainer.hyps, "isolate_val_targs", True):
+                n_targs = val_sample + 1
+            trainer.validate(epoch,
+                model,
+                data_collector,
+                n_targs=val_sample
+            )
         trainer.end_epoch(epoch)
+        trn_whls = try_key(trainer.hyps, "trn_whls_epoch", None)
+        trn_whls_off = trn_whls is not None and epoch >= trn_whls
+        if trainer.phase != 0 and trn_whls_off:
+            model.trn_whls = 0
 
 class Trainer:
     """
@@ -628,7 +648,7 @@ class Trainer:
         )
         print(s, end=len(s)//4*" " + "\r")
 
-    def validate(self, epoch, model, data_collector):
+    def validate(self, epoch, model, data_collector, n_targs=None):
         """
         Validates the performance of the model directly on an
         environment. Steps the learning rate scheduler based on the
@@ -646,7 +666,8 @@ class Trainer:
                 self.phase,
                 model,
                 n_tsteps=self.hyps["n_eval_steps"],
-                n_eps=self.hyps["n_eval_eps"]
+                n_eps=self.hyps["n_eval_eps"],
+                n_targs=n_targs
             )
             lang_labels = self.get_lang_labels(
                 eval_data["n_items"],

@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 import torch.multiprocessing as mp
 import numpy as np
+from langpractice.models import NullModel
 from langpractice.envs import SequentialEnvironment
 from langpractice.oracles import *
 from langpractice.utils.utils import try_key, sample_action
@@ -278,12 +279,25 @@ class DataCollector:
                 self.stop_q,
             )
             self.runners.append(runner)
+
         # Initiate Data Collection
+    def init_runner_procs(self, model):
+        """
+        Initializes the runner processes
+
+        Args:
+            model: torch Module
+                make sure the model's weights are shared so that they
+                can be updated over the course of the training.
+        """
         self.procs = []
         for i in range(len(self.runners)):
-            proc = mp.Process(target=self.runners[i].run)
-            self.procs.append(proc)
+            proc = mp.Process(
+                target=self.runners[i].run,
+                args=(model,)
+            )
             proc.start()
+            self.procs.append(proc)
 
     def await_runners(self):
         for i in range(self.hyps["batch_size"]):
@@ -351,7 +365,7 @@ class Runner:
         env_type = self.hyps['env_type']
         self.oracle = globals()[self.hyps["oracle_type"]](env_type)
 
-    def run(self):
+    def run(self, model=None):
         """
         run is the entry function to begin collecting rollouts from the
         environment. gate_q indicates when to begin collecting a
@@ -359,6 +373,9 @@ class Runner:
         used to indicate to the main process that a new rollout has
         been collected.
         """
+        self.model = model
+        if model is None:
+            self.model = NullModel(**self.hyps)
         self.env = SequentialEnvironment(**self.hyps)
         state = next_state(
             self.env,
@@ -367,13 +384,16 @@ class Runner:
             reset=True
         )
         self.state_bookmark = state
+        self.h_bookmark = None
         self.ep_rew = 0
         while True:
-            idx = self.gate_q.get() # Opened from main process
-            self.rollout(idx)
-            self.stop_q.put(idx) # Signals to main process that data has been collected
+            with torch.no_grad():
+                idx = self.gate_q.get() # Opened from main process
+                self.rollout(idx, self.model)
+                # Signals to main process that data has been collected
+                self.stop_q.put(idx)
 
-    def rollout(self, idx):
+    def rollout(self, idx, model):
         """
         rollout handles the actual rollout of the environment. It runs
         for n steps in the game. Collected data is placed into the
@@ -385,19 +405,36 @@ class Runner:
                 shared_exp designated for this rollout
         """
         state = self.state_bookmark
+        model.eval()
+        #if idx==0:
+        #    for name,p in model.named_parameters():
+        #        if hasattr(p, "data"):
+        #            print(name, p.reshape(-1)[:3])
+        if self.h_bookmark is None:
+            model.reset(1)
+        else:
+            model.h, model.c = self.h_bookmark
         exp_len = self.hyps['exp_len']
         for i in range(exp_len):
             # Collect the state of the environment
             t_state = torch.FloatTensor(state) # (C, H, W)
             self.shared_exp["obs"][idx,i] = t_state
-            # Get oracle's actn
-            actn = self.oracle(self.env, state=t_state) # int
+            # Get actn
+            actn_targ = self.oracle(self.env, state=t_state) # int
+            if model.trn_whls == 1:
+                actn = actn_targ
+            else:
+                inpt = t_state[None].to(DEVICE)
+                actn_pred, _ = model.step(inpt)
+                actn = sample_action(
+                    F.softmax(actn_pred, dim=-1)
+                ).item()
             # Step the environment
             obs, rew, done, info = self.env.step(actn)
             # Collect data
             self.shared_exp['rews'][idx,i] = rew
             self.shared_exp['dones'][idx,i] = float(done)
-            self.shared_exp['actns'][idx,i] = actn
+            self.shared_exp['actns'][idx,i] = actn_targ
             if "n_targs" in info:
                 self.shared_exp["n_targs"][idx,i] = info["n_targs"]
                 self.shared_exp["n_items"][idx,i] = info["n_items"]
@@ -411,7 +448,10 @@ class Runner:
                 obs=obs,
                 reset=done
             )
+            if done: model.reset(1)
         self.state_bookmark = state
+        if hasattr(model, "h"):
+            self.h_bookmark = (model.h, model.c)
 
 class ValidationRunner(Runner):
     def __init__(self, hyps):
@@ -432,8 +472,10 @@ class ValidationRunner(Runner):
         self.hyps["targ_range"] = try_key(
             self.hyps,
             "val_targ_range",
-            self.hyps["targ_range"]
+            None
         )
+        if self.hyps["val_targ_range"] is None:
+            self.hyps["val_targ_range"] = self.hyps["targ_range"]
         print("validation runner target range:",self.hyps["targ_range"])
         self.obs_deque = deque(maxlen=hyps['n_frame_stack'])
         self.env = SequentialEnvironment(**self.hyps)
@@ -448,7 +490,29 @@ class ValidationRunner(Runner):
         self.ep_rew = 0
         self.oracle = globals()[self.hyps["oracle_type"]](**self.hyps)
 
-    def rollout(self, phase, model, n_tsteps, n_eps=None):
+    def init_env(self, n_targs=None):
+        """
+        Handles the initialization of the environment.
+
+        Args:
+            n_targs: int or None
+                the desired number of targets for all episodes. if
+                None, defaults to the self.hyps["targ_range"]
+        """
+        hyps = self.hyps
+        if n_targs is not None:
+            hyps = {**self.hyps, "targ_range": (n_targs, n_targs)}
+        self.env = SequentialEnvironment(**hyps)
+        state = next_state(
+            self.env,
+            self.obs_deque,
+            obs=None,
+            reset=True
+        )
+        self.state_bookmark = state
+        self.h_bookmark = None
+
+    def rollout(self, phase, model, n_tsteps, n_eps=None, n_targs=None):
         """
         rollout handles the actual rollout of the environment. It runs
         for n steps in the game using the model to determine actions
@@ -457,7 +521,8 @@ class ValidationRunner(Runner):
 
         Args:
             phase: int
-                the phase of the training
+                the phase of the training. phase 1 and 2 are treated
+                the same. phase 0 uses the oracle for actions.
             model: torch Module
             n_tsteps: int or None
                 number of steps to rollout. must not be None if n_eps
@@ -467,6 +532,9 @@ class ValidationRunner(Runner):
                 number of episodes to rollout. must not be None if
                 n_tsteps is None. if both n_tsteps and n_eps are not
                 None, the rollout ends at the sooner of the two.
+            n_targs: int or None
+                optional argument to specify the number of targets for
+                the collected episodes
         Returns:
             data: dict
                 keys: str
@@ -510,12 +578,14 @@ class ValidationRunner(Runner):
             "grabs": [],
         }
         model.eval()
+        # Reset every on every validation run
+        model.reset(1)
+        self.init_env(n_targs=n_targs)
+
+        # bookmarks are really unnecessary because we reset the env
+        # every time we validate. But it was easier to leave the
+        # bookmarks to get the code working quicker
         state = self.state_bookmark
-        if self.h_bookmark is None:
-            model.reset(1)
-        else:
-            model.h, model.c = self.h_bookmark
-        prev_h = self.h_bookmark
         with torch.no_grad():
             ep_count = 0
             step_count = 0
@@ -538,7 +608,12 @@ class ValidationRunner(Runner):
                     lang = torch.stack(lang_pred, dim=0)
                 # lang: (N,1,L)
                 data["lang_preds"].append(lang)
-                actn = sample_action(F.softmax(actn_pred, dim=-1)).item()
+                if try_key(self.hyps, "val_max_actn", False):
+                    actn = torch.argmax(actn_pred[0]).item()
+                else:
+                    actn = sample_action(
+                        F.softmax(actn_pred, dim=-1)
+                    ).item()
                 # get target action
                 targ = self.oracle(self.env)
                 data["actn_targs"].append(targ)

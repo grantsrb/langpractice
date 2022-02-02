@@ -374,10 +374,11 @@ def run_training(train_fxn):
         print("Using hyperranges file:", sys.argv[2])
     print()
 
+    keys = sorted(list(hyps.keys()))
     hyps_str = ""
-    for k,v in hyps.items():
+    for k in keys:
         if k not in ranges:
-            hyps_str += "{}: {}\n".format(k,v)
+            hyps_str += "{}: {}\n".format(k,hyps[k])
     print("Hyperparameters:")
     print(hyps_str)
     print("\nSearching over:")
