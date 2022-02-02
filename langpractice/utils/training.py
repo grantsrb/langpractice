@@ -62,17 +62,9 @@ def get_resume_checkpt(hyps, in_place=False, verbose=True):
         hyps = {**hyps}
     if resume_folder is not None and resume_folder != "":
         checkpt = io.load_checkpoint(resume_folder)
-        if "epoch" not in checkpt:
-            path = io.get_checkpoints(resume_folder)[-1]
-            checkpt["epoch"] = int(path.split(".")[0].split("_")[-1])
-            torch.save(checkpt, checkpt["loaded_path"]) 
-        n_epochs = -1
-        if "phase" in checkpt and checkpt["phase"]==0:
-            n_epochs = hyps["lang_epochs"]
-        elif "phase" in checkpt and checkpt["phase"] > 0:
-            n_epochs = hyps["actn_epochs"]
-        elif "n_epochs" in hyps: n_epochs = hyps["n_epochs"]
-        if verbose and (checkpt['epoch']>=n_epochs or n_epochs == -1):
+        # Check if argued number of epochs exceeds the total epochs
+        # of the to-be-resumed training
+        if verbose and training_exceeds_epochs(hyps, checkpt):
             print("Could not resume due to epoch count")
             print("Performing fresh training")
         else:
@@ -89,8 +81,27 @@ def get_resume_checkpt(hyps, in_place=False, verbose=True):
             )
             hyps['description'] += s
             hyps['ignore_keys'] = ignore_keys
+            hyps["save_folder"] = resume_folder
             return checkpt, hyps
     return None, hyps
+
+def training_exceeds_epochs(hyps, checkpt):
+    """
+    Helper function to deterimine if the training to be resumed has
+    already exceeded the number of epochs argued in the resumed
+    training.
+
+    Args:
+        hyps: dict
+        checkpt: dict
+    """
+    n_epochs = -1
+    if "phase" in checkpt and checkpt["phase"]==0:
+        n_epochs = hyps["lang_epochs"]
+    elif "phase" in checkpt and checkpt["phase"] > 0:
+        n_epochs = hyps["actn_epochs"]
+    elif "n_epochs" in hyps: n_epochs = hyps["n_epochs"]
+    return (checkpt['epoch']>=n_epochs or n_epochs == -1)
 
 def get_exp_num(exp_folder, exp_name, offset=0):
     """

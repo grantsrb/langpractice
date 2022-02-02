@@ -213,6 +213,11 @@ def load_checkpoint(path,use_best=False):
     data = torch.load(path, map_location=torch.device("cpu"))
     data["loaded_path"] = path
     if "hyps" not in data: data["hyps"] = hyps
+    if "epoch" not in data:
+        # Untested!!
+        ext = path.split(".")[-1]
+        data["epoch"] = int(path.split("."+ext)[0].split("_")[-1])
+        torch.save(data, path) 
     return data
 
 def load_model(path, models, load_sd=True, use_best=False,
