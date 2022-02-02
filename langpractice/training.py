@@ -203,7 +203,7 @@ class Trainer:
                 during its previous training
         """
         folder = try_key(self.hyps, "resume_folder", "")
-        if folder is not None or folder != "":
+        if folder is not None and folder != "":
             checkpt = load_checkpoint(folder)
             return try_key(checkpt, "phase", 0)
         return 0
