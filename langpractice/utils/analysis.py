@@ -50,6 +50,7 @@ def get_stats_dataframe(model_folders,
     for model_folder, name in zip(model_folders, names):
         if verbose: print("Collecting from", model_folder)
         checkpts = lpio.get_checkpoints(model_folder)
+        if len(checkpts) == 0: continue
         df = None
         rang = enumerate(checkpts)
         if verbose: rang = tqdm(rang)
