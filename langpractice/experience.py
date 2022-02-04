@@ -406,10 +406,6 @@ class Runner:
         """
         state = self.state_bookmark
         model.eval()
-        #if idx==0:
-        #    for name,p in model.named_parameters():
-        #        if hasattr(p, "data"):
-        #            print(name, p.reshape(-1)[:3])
         if self.h_bookmark is None:
             model.reset(1)
         else:

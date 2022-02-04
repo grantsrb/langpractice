@@ -170,7 +170,7 @@ def training_loop(n_epochs,data_collector,trainer,model,verbose=True):
             trainer.validate(epoch,
                 model,
                 data_collector,
-                n_targs=val_sample
+                n_targs=n_targs
             )
         trainer.end_epoch(epoch)
         trn_whls = try_key(trainer.hyps, "trn_whls_epoch", None)
