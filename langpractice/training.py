@@ -507,17 +507,14 @@ class Trainer:
         # Phase 1: action labels at all steps in rollout
         # Phase 2: lang and action labels at all steps in rollout
         loss = 0
-        accs_array = []
-        if self.phase == 0:
+        lang_accs = {}
+        if self.phase == 0 or self.phase == 2:
+            accs_array = []
             idxs = drops==1
             labels = labels[idxs]
             n_targs = n_targs[idxs]
-        lang_accs = {}
-        if self.phase == 0 or self.phase == 2:
             for lang in langs:
-                lang = lang.reshape(-1, lang.shape[-1])
-                if self.phase == 0:
-                    lang = lang[idxs]
+                lang = lang.reshape(-1, lang.shape[-1])[idxs]
                 labels = labels.to(DEVICE)
                 loss += self.loss_fxn(lang, labels)
                 with torch.no_grad():
