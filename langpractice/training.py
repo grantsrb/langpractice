@@ -512,16 +512,17 @@ class Trainer:
             accs_array = []
             idxs = drops==1
             labels = labels[idxs]
-            n_targs = n_targs[idxs]
+            temp_targs = n_targs[idxs]
             for lang in langs:
-                lang = lang.reshape(-1, lang.shape[-1])[idxs]
+                lang = lang.reshape(-1, lang.shape[-1])
+                lang = lang[idxs]
                 labels = labels.to(DEVICE)
                 loss += self.loss_fxn(lang, labels)
                 with torch.no_grad():
                     accs = self.calc_accs( # accs is a dict of floats
                         logits=lang,
                         targs=labels,
-                        categories=n_targs,
+                        categories=temp_targs,
                         prepender=prepender+"_lang"
                     )
                     accs_array.append(accs)
@@ -599,18 +600,28 @@ class Trainer:
                         particular category.
         """
         logits = logits.reshape(-1, logits.shape[-1])
-        argmaxes = torch.argmax(logits, dim=-1).squeeze()
+        argmaxes = torch.argmax(logits, dim=-1).reshape(-1)
         targs = targs.reshape(-1)
         acc = (argmaxes.long()==targs.long()).float().mean()
         accs = {
             prepender + "_acc": acc.item()
         }
+        if len(argmaxes) == 0: return accs
         if type(categories) == torch.Tensor: # (B, N)
             categories = categories.reshape(-1).data.long()
             cats = {*categories.numpy()}
             for cat in cats:
-                argmxs = argmaxes[categories==cat]
-                trgs = targs[categories==cat]
+                idxs = categories==cat
+                if idxs.float().sum() <= 0: continue
+                try:
+                    argmxs = argmaxes[idxs]
+                except:
+                    print("logits:", logits.shape)
+                    print("argmaxes:", argmaxes.shape)
+                    print("categs:", categories.shape)
+                    print("idxs sum:", idxs.float().sum())
+                    assert False
+                trgs = targs[idxs]
                 acc = (argmxs.long()==trgs.long()).float().mean()
                 accs[prepender+"_acc_"+str(cat)] = acc.item()
         return accs
@@ -862,6 +873,8 @@ def coef_of_var(n_items, n_targs, **kwargs):
             the error divided by the average n_targs
     """
     if len(n_items) == 0: return np.inf
+    mean = n_items.mean()
+    if mean == 0: return np.inf
     return n_items.std()/n_items.mean()
 
 def perc_aligned(n_aligned, n_targs, **kwargs):
