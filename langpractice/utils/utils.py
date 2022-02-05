@@ -28,6 +28,17 @@ def load_json(file_name):
         j = json.loads(s)
     return j
 
+def save_json(data, file_name):
+    """
+    saves a dict to a json file
+
+    data: dict
+    file_name: str
+        the path that you would like to save to
+    """
+    with open(file_name, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
 def resize2Square(img, size):
     """
     resizes image to a square with the argued size. Preserves the aspect
