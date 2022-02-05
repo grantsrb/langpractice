@@ -5,7 +5,7 @@ import numpy as np
 from langpractice.models import NullModel
 from langpractice.envs import SequentialEnvironment
 from langpractice.oracles import *
-from langpractice.utils.utils import try_key, sample_action
+from langpractice.utils.utils import try_key, sample_action, zipfian
 from collections import deque
 
 if torch.cuda.is_available():
@@ -13,7 +13,7 @@ if torch.cuda.is_available():
 else:
     DEVICE = torch.device("cpu")
 
-def next_state(env, obs_deque, obs, reset):
+def next_state(env, obs_deque, obs, reset, n_targs=None):
     """
     Get the next state of the environment.
 
@@ -22,10 +22,12 @@ def next_state(env, obs_deque, obs, reset):
     obs - ndarray returned from the most recent step of the environment
     reset - boolean denoting the reset signal from the most recent step 
             of the environment
+    n_targs: int or None
+        if int, decides the number of targets for the next episode
     """
 
     if reset or obs is None:
-        obs = env.reset()
+        obs = env.reset(n_targs=n_targs)
         for i in range(obs_deque.maxlen-1):
             obs_deque.append(np.zeros(obs.shape))
     obs_deque.append(obs)
@@ -292,6 +294,7 @@ class DataCollector:
         """
         self.procs = []
         for i in range(len(self.runners)):
+            if i > len(self.runners)//2: model = None
             proc = mp.Process(
                 target=self.runners[i].run,
                 args=(model,)
@@ -310,6 +313,24 @@ class DataCollector:
     def terminate_runners(self):
         for proc in self.procs:
             proc.terminate()
+
+def sample_zipfian(hyps):
+    """
+    A helper function to sample from the zipfian distribution according
+    to the hyperparameters.
+
+    Args:
+        hyps: dict
+            the hyperparameters
+    Returns:
+        sample: int or None
+            the sampled value if zipf_order is not none
+    """
+    order = try_key(hyps, "zipf_order", None)
+    if order is not None and order > 0:
+        low, high = hyps["targ_range"]
+        return zipfian(low, high, order)
+    return None
 
 class Runner:
     def __init__(self, shared_exp, hyps, gate_q, stop_q):
@@ -381,7 +402,8 @@ class Runner:
             self.env,
             self.obs_deque,
             obs=None,
-            reset=True
+            reset=True,
+            n_targs=sample_zipfian(self.hyps)
         )
         self.state_bookmark = state
         self.h_bookmark = None
@@ -442,7 +464,8 @@ class Runner:
                 self.env,
                 self.obs_deque,
                 obs=obs,
-                reset=done
+                reset=done,
+                n_targs=sample_zipfian(self.hyps)
             )
             if done: model.reset(1)
         self.state_bookmark = state

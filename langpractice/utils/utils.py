@@ -141,3 +141,51 @@ def sample_action(pi):
         actions[(cumu_sum >= rand_nums)&(actions < 0)] = i
     return actions
 
+def sample_numpy(pi):
+    """
+    Stochastically selects an index from the pi vectors.
+
+    Args:
+        pi: ndarray (N,) (must sum to 1 across last dim)
+    """
+    rand_num = np.random.random()
+    cumu_sum = 0
+    action = 0
+    for i in range(len(pi)):
+        cumu_sum += pi[i]
+        if cumu_sum > rand_num: return i
+    return len(pi)-1
+
+def softmax(arr):
+    """
+    arr: ndarray (N,)
+        a single dimensional array
+    """
+    arr = np.exp(arr-np.max(arr))
+    return arr / np.sum(arr)
+
+def zipfian(low=1, high=9, order=1):
+    """
+    Draws a single integer from low (inclusive) to high (inclusive) in
+    which the probability is proportional to 1/k^order.
+
+    Args:
+        low: int (inclusive)
+            the lowest possible value
+        high: int (inclusive)
+            the highest possible value
+        order: float
+            the order of the exponent to weight the probability density
+            for each possible value.
+    Returns:
+        sample: int
+            returns a sample drawn from the zipfian distribution.
+    """
+    if low == high: return low
+    assert low < high and low > 0
+
+    probs = np.arange(low, high+1).astype("float")
+    probs = 1/(probs**order)
+    probs = softmax(probs)
+    samp = sample_numpy(probs)
+    return samp + low

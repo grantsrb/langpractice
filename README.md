@@ -158,6 +158,9 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
     "targ_range": list of ints (low, high)
         the range of potential target counts. both low and high are
         inclusive. only applies to gordongames variants.
+    "zipf_order": float or None
+        if greater than 0, the targets are drawn proportionally to the
+        zipfian distribution using `zipfian_order` as the exponent.
 
     "n_envs": int
         the number of parallel environments to collect data in the
