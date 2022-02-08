@@ -20,6 +20,7 @@ And then select the cuda device index you will want to use (in this case 0) and 
 ```
 $ CUDA_VISIBLE_DEVICES=0 python3 main.py path_to_hyperparameters.json path_to_hyperranges.json
 ```
+It is also possible to split the hyperranges into multiple tmux sessions on multiple gpus using the `./training_scripts/distr_main.py` script. To use this script, you must create a metaparams.json file which is detailed within the `distr_main.py` script.
 ## Setup
 After cloning the repo, install all necessary packages locally:
 ```sh

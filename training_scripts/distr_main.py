@@ -27,11 +27,12 @@ def distr_ranges(meta, rng_paths):
     tmux_sesh = "tmux new -d -s"
     exe = "python3 main.py"
     for rng_path, device in zip(rng_paths, meta["devices"]):
-        command = "CUDA_VISIBLE_DEVICES={} {} \"{}{}\" {} {} {}".format(
-            device,
+        cuda = "export CUDA_VISIBLE_DEVICES=" + str(device)
+        command = "{} \"{}{}\" \'{}; {} {} {}\'".format(
             tmux_sesh,
             exp_name,
             device,
+            cuda,
             exe,
             meta["hyperparams"],
             rng_path
