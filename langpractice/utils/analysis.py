@@ -47,14 +47,13 @@ def get_stats_dataframe(model_folders,
     main_df = None
     
     # Add Each Model's Data to Main Data Frame
-    for model_folder, name in zip(model_folders, names):
-        if verbose: print("Collecting from", model_folder)
+    z = zip(model_folders, names)
+    if verbose: z = tqdm(z)
+    for model_folder, name in z:
         checkpts = lpio.get_checkpoints(model_folder)
         if len(checkpts) == 0: continue
         df = None
-        rang = enumerate(checkpts)
-        if verbose: rang = tqdm(rang)
-        for ci,path in rang:
+        for ci,path in enumerate(checkpts):
             checkpt = lpio.load_checkpoint(path)
             if ci==0:
                 df = {k:[] for k in checkpt["stats"].keys()}
