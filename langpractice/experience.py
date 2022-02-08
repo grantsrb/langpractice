@@ -426,12 +426,22 @@ class Runner:
                 identification number distinguishing the row of the
                 shared_exp designated for this rollout
         """
-        state = self.state_bookmark
         model.eval()
-        if self.h_bookmark is None:
+        if try_key(self.hyps, "reset_trn_env", False):
+            state = next_state(
+                self.env,
+                self.obs_deque,
+                obs=None,
+                reset=True,
+                n_targs=sample_zipfian(self.hyps)
+            )
             model.reset(1)
         else:
-            model.h, model.c = self.h_bookmark
+            state = self.state_bookmark
+            if self.h_bookmark is None:
+                model.reset(1)
+            else:
+                model.h, model.c = self.h_bookmark
         exp_len = self.hyps['exp_len']
         for i in range(exp_len):
             # Collect the state of the environment

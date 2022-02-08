@@ -175,6 +175,10 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         the "experience" length for a single rollout. This is the
         number of steps to take in the environment for a single row
         in the batch during data collection.
+    "reset_trn_env": bool
+        if true, the training environments are reset at the beginning
+        of each collection. This ensures that the model never has to
+        jump into the middle of an episode during training.
 
     "val_targ_range": list of ints (low, high) or None
         the range of potential target counts during the validation
