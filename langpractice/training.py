@@ -71,7 +71,11 @@ def train(rank, hyps, verbose=True):
             model,
             verbose=verbose
         )
+    # Update phase accross training
     trainer.phase = hyps["second_phase"]
+    data_collector.await_runners()
+    data_collector.update_phase(trainer.phase)
+    data_collector.dispatch_runners()
     # Fresh optimizer
     trainer.set_optimizer_and_scheduler(
         model,

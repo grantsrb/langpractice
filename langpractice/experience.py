@@ -256,7 +256,12 @@ class DataCollector:
         self.obs_shape = self.val_runner.env.shape
         self.hyps['inpt_shape'] = self.val_runner.state_bookmark.shape
         self.hyps["actn_size"] = self.val_runner.env.actn_size
-        self.hyps["lang_size"] = self.hyps['targ_range'][1]+1
+        lang_range = try_key(
+            self.hyps,
+            "lang_range",
+            self.hyps["targ_range"]
+        )
+        self.hyps["lang_size"] = lang_range[1]+1
         if int(self.hyps["use_count_words"]) == 0:
             self.hyps["lang_size"] = 3
         elif int(self.hyps["use_count_words"]) == 2:
@@ -264,6 +269,8 @@ class DataCollector:
         # Create gating mechanisms
         self.gate_q = mp.Queue(self.batch_size)
         self.stop_q = mp.Queue(self.batch_size)
+        self.phase_q = mp.Queue(1)
+        self.phase_q.put(0)
         # Initialize Experience Replay
         self.exp_replay = ExperienceReplay(**hyps)
         # Initialize runners
@@ -279,6 +286,7 @@ class DataCollector:
                 self.hyps,
                 self.gate_q,
                 self.stop_q,
+                self.phase_q
             )
             self.runners.append(runner)
 
@@ -314,6 +322,10 @@ class DataCollector:
         for proc in self.procs:
             proc.terminate()
 
+    def update_phase(self, phase):
+        old_phase = self.phase_q.get()
+        self.phase_q.put(phase)
+
 def sample_zipfian(hyps):
     """
     A helper function to sample from the zipfian distribution according
@@ -333,7 +345,7 @@ def sample_zipfian(hyps):
     return None
 
 class Runner:
-    def __init__(self, shared_exp, hyps, gate_q, stop_q):
+    def __init__(self, shared_exp, hyps, gate_q, stop_q, phase_q):
         """
         Args:
             hyps: dict
@@ -376,27 +388,42 @@ class Runner:
             stop_q: multiprocessing Queue.
                 Used to indicate to main process that a rollout has
                 been collected.
+            phase_q: multiprocessing Queue.
+                Used to indicate from the main process that the phase
+                has changed.
         """
 
         self.hyps = hyps
         self.shared_exp = shared_exp
         self.gate_q = gate_q
         self.stop_q = stop_q
+        self.phase_q = phase_q
         self.obs_deque = deque(maxlen=hyps['n_frame_stack'])
         env_type = self.hyps['env_type']
         self.oracle = globals()[self.hyps["oracle_type"]](env_type)
 
-    def run(self, model=None):
+    def create_new_env(self):
         """
-        run is the entry function to begin collecting rollouts from the
-        environment. gate_q indicates when to begin collecting a
-        rollout and is controlled from the main process. The stop_q is
-        used to indicate to the main process that a new rollout has
-        been collected.
+        This function simplifies making a new environment and storing
+        all the variables associated with it. It uses the language
+        target range or the action target range depending on the phase
+        of the experiment. Phase 0 means language, anything else means
+        action.
         """
-        self.model = model
-        if model is None:
-            self.model = NullModel(**self.hyps)
+        self.hyps = {**self.hyps}
+        if self.phase == 0:
+            # Set defaults
+            if try_key(self.hyps, "actn_range", None) is None:
+                self.hyps["actn_range"] = self.hyps["targ_range"]
+            if try_key(self.hyps, "lang_range", None) is None:
+                self.hyps["lang_range"] = self.hyps["targ_range"]
+            # Set environment targ range to language range
+            self.hyps["targ_range"] = self.hyps["lang_range"]
+        else:
+            # Set environment targ range to action range
+            self.hyps["targ_range"] = self.hyps["actn_range"]
+        print("Current Phase:", self.phase)
+        print("Setting Env to Targ Range:", self.hyps["targ_range"])
         self.env = SequentialEnvironment(**self.hyps)
         state = next_state(
             self.env,
@@ -407,10 +434,33 @@ class Runner:
         )
         self.state_bookmark = state
         self.h_bookmark = None
+        return state
+
+    def run(self, model=None):
+        """
+        run is the entry function to begin collecting rollouts from the
+        environment. gate_q indicates when to begin collecting a
+        rollout and is controlled from the main process. The stop_q is
+        used to indicate to the main process that a new rollout has
+        been collected.
+        """
+        self.phase = 0
+        self.model = model
+        if model is None:
+            self.model = NullModel(**self.hyps)
+        state = self.create_new_env()
         self.ep_rew = 0
         while True:
             with torch.no_grad():
-                idx = self.gate_q.get() # Opened from main process
+                # Await collection signal from main proc
+                idx = self.gate_q.get()
+                # Change phase if necessary
+                phase = self.phase_q.get()
+                self.phase_q.put(phase)
+                if self.phase != phase:
+                    self.phase = phase
+                    state = self.create_new_env()
+                # Collect rollout
                 self.rollout(idx, self.model)
                 # Signals to main process that data has been collected
                 self.stop_q.put(idx)
@@ -497,14 +547,11 @@ class ValidationRunner(Runner):
                                 with. Follows OpenAI's gym api.
         """
         self.hyps = {**hyps}
-        print("train runner target range:", self.hyps["targ_range"])
         self.hyps["targ_range"] = try_key(
             self.hyps,
             "val_targ_range",
             None
         )
-        if self.hyps["val_targ_range"] is None:
-            self.hyps["val_targ_range"] = self.hyps["targ_range"]
         print("validation runner target range:",self.hyps["targ_range"])
         self.obs_deque = deque(maxlen=hyps['n_frame_stack'])
         self.env = SequentialEnvironment(**self.hyps)

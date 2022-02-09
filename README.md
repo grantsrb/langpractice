@@ -157,7 +157,16 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         the number of units (height, width) of the game. Only applies
         to gordongames variants
     "targ_range": list of ints (low, high)
-        the range of potential target counts. both low and high are
+        the range of potential target counts. This acts as the default
+        if lang_range or actn_range are not specified. both low and
+        high are inclusive. only applies to gordongames variants.
+    "lang_range": list of ints (low, high)
+        the range of potential target counts for training the language
+        model during phase 0. both low and high are
+        inclusive. only applies to gordongames variants.
+    "actn_range": list of ints (low, high)
+        the range of potential target counts for training the action
+        model during phases other than 0. both low and high are
         inclusive. only applies to gordongames variants.
     "zipf_order": float or None
         if greater than 0, the targets are drawn proportionally to the
