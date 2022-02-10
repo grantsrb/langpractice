@@ -20,7 +20,8 @@ And then select the cuda device index you will want to use (in this case 0) and 
 ```
 $ CUDA_VISIBLE_DEVICES=0 python3 main.py path_to_hyperparameters.json path_to_hyperranges.json
 ```
-It is also possible to split the hyperranges into multiple tmux sessions on multiple gpus using the `./training_scripts/distr_main.py` script. To use this script, you must create a metaparams.json file which is detailed within the `distr_main.py` script.
+It is also possible to split the hyperranges into multiple tmux sessions on multiple gpus using the `./training_scripts/distr_main.py` script. To use this script, you must create a metaparams.json file which is detailed within the `distr_main.py` script. If it does not work, you may need to upgrade tmux to at least 3.0 or you may need to upgrade ubuntu to 20.04 or later.
+
 ## Setup
 After cloning the repo, install all necessary packages locally:
 ```sh
