@@ -3,7 +3,7 @@ This script takes a metaranges file and distributes the specified
 hyperranges (within the metaranges) to each of the gpus with its own
 tmux session.
 
-    $ python3 distr_main.py hyperparams.json metaranges.json
+    $ python3 distr.py main.py metaranges.json
 
 The meta ranges should have the following structure within a .json:
 
@@ -21,11 +21,11 @@ from langpractice.utils.utils import load_json, save_json
 # os.system("tmux new -s tes")
 # tmux new-session -d -s \"myTempSession\" /opt/my_script.sh
 
-def distr_ranges(meta, rng_paths):
+def distr_ranges(script, meta, rng_paths):
     exp_name = load_json(meta["hyperparams"])["exp_name"]
     
     tmux_sesh = "tmux new -d -s"
-    exe = "python3 main.py"
+    exe = "python3 {}".format(script)
     for rng_path, device in zip(rng_paths, meta["devices"]):
         cuda = "export CUDA_VISIBLE_DEVICES=" + str(device)
         command = "{} \"{}{}\" \'{}; {} {} {}\'".format(
@@ -37,6 +37,7 @@ def distr_ranges(meta, rng_paths):
             meta["hyperparams"],
             rng_path
         )
+        print(command)
         os.system(command)
 
 def split_ranges(meta):
@@ -88,6 +89,6 @@ def split_ranges(meta):
 
 if __name__ == "__main__":
 
-    meta = load_json(sys.argv[1])
+    meta = load_json(sys.argv[2])
     rng_paths = split_ranges(meta)
-    distr_ranges(meta, rng_paths)
+    distr_ranges(sys.argv[1], meta, rng_paths)
