@@ -261,6 +261,7 @@ class DataCollector:
             "lang_range",
             self.hyps["targ_range"]
         )
+        if lang_range is None: lang_range = self.hyps["targ_range"]
         self.hyps["lang_size"] = lang_range[1]+1
         if int(self.hyps["use_count_words"]) == 0:
             self.hyps["lang_size"] = 3
