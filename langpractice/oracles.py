@@ -41,6 +41,8 @@ class GordonOracle(Oracle):
             self.brain = gg.envs.ggames.ai.cluster_match
         elif self.env_type == "gordongames-v3":
             self.brain = gg.envs.ggames.ai.even_line_match
+        elif self.env_type == "gordongames-v4":
+            self.brain = gg.envs.ggames.ai.nuts_in_can
         elif self.env_type == "gordongames-v5":
             self.brain = gg.envs.ggames.ai.rev_cluster_match
         elif self.env_type == "gordongames-v6":
@@ -57,6 +59,8 @@ class GordonOracle(Oracle):
         (direction, grab) = self.brain(env.env.controller)
         if grab == self.is_grabbing:
             return direction
+        elif self.brain == gg.envs.ggames.ai.nuts_in_can:
+            return gg.envs.ggames.constants.GRAB
         else:
             self.is_grabbing = grab
-            return 5
+            return gg.envs.ggames.constants.GRAB
