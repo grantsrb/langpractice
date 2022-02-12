@@ -17,13 +17,14 @@ $ python3 validate_model.py exp_name/model_folder/
 """
 
 if __name__=="__main__":
-    exp_folder = sys.argv[1]
-    model_folders = lp.utils.save_io.get_model_folders(
-            exp_folder,
-            incl_full_path=True
-    )
-    for model_folder in model_folders:
-        print("Beginning Validation for", model_folder)
-        starttime = time.time()
-        validate_model(model_folder)
-        print("Finished", time.time()-starttime, "s")
+    exp_folders = sys.argv[1:]
+    for exp_folder in exp_folders:
+        model_folders = lp.utils.save_io.get_model_folders(
+                exp_folder,
+                incl_full_path=True
+        )
+        for model_folder in model_folders:
+            print("Beginning Validation for", model_folder)
+            starttime = time.time()
+            validate_model(model_folder)
+            print("Finished", time.time()-starttime, "s")
