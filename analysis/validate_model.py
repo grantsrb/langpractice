@@ -41,6 +41,7 @@ def validate_model(model_folder,
         model_folder,
         use_best=False
     )
+    if checkpt is None: return 
     hyps = checkpt["hyps"]
     if val_max_actn is not None:
         hyps["val_max_actn"] = val_max_actn
