@@ -328,6 +328,8 @@ class Trainer:
             actns = data["actns"]
             dones = data["dones"]
             drops = data["drops"]
+            if self.hyps["env_type"]=="gordongames-v4":
+                drops = torch.ones_like(drops).long()
             n_items = data["n_items"]
             n_targs = data["n_targs"]
             labels = self.get_lang_labels(
@@ -520,6 +522,10 @@ class Trainer:
             for lang in langs:
                 lang = lang.reshape(-1, lang.shape[-1])
                 lang = lang[idxs]
+                if len(lang)==0:
+                    print("lang:", lang)
+                    print("drops:", drops)
+                    break
                 labels = labels.to(DEVICE)
                 loss += self.loss_fxn(lang, labels)
                 with torch.no_grad():
@@ -604,7 +610,10 @@ class Trainer:
                         particular category.
         """
         logits = logits.reshape(-1, logits.shape[-1])
-        argmaxes = torch.argmax(logits, dim=-1).reshape(-1)
+        try:
+            argmaxes = torch.argmax(logits, dim=-1).reshape(-1)
+        except:
+            print("logits:", logits)
         targs = targs.reshape(-1)
         acc = (argmaxes.long()==targs.long()).float().mean()
         accs = {
@@ -689,6 +698,8 @@ class Trainer:
             drops = data_collector.exp_replay.get_drops(
                 eval_data["grabs"]
             )
+            if self.hyps["env_type"]=="gordongames-v4":
+                drops = torch.ones_like(drops).long()
             loss, accs = self.get_loss_and_accs(
                 logits=eval_data["actn_preds"],
                 langs=eval_data["lang_preds"],
