@@ -47,7 +47,7 @@
     "isolate_val_targs": true,
     "n_val_samples": 10,
     "n_eval_eps": 10,
-    "n_eval_steps": 3000,
+    "n_eval_steps": null,
     "randomize_order": false,
 
     "oracle_type": "GordonOracle",
