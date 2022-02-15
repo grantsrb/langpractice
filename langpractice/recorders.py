@@ -134,7 +134,7 @@ class Recorder:
         }
         save_dict["stats"]["phase"] = phase
         key = self.hyps["best_by_key"]
-        if key not in save_dict["stats"]: key = "val_loss_avg"
+        if key not in save_dict["stats"]: key = "train_loss_avg"
         if "loss" in key:
             is_best = save_dict["stats"][key] < self.best_score
         else:

@@ -18,20 +18,16 @@ if __name__ == "__main__":
         use_best=False
     )
     hyps = checkpt["hyps"]
+    hyps["n_eval_steps"] = 1000
     hyps["render"] = True
     model = globals()[hyps["model_type"]](**hyps).cuda()
     model.load_state_dict(checkpt["state_dict"])
     model.eval()
     model.reset()
     val_runner = lp.experience.ValidationRunner(hyps)
+    val_runner.phase = 2
     eval_eps = 10
-    data = val_runner.rollout(
-        phase=2,
-        model=model,
-        n_tsteps=1000
-    )
-    #for state, actn in zip(data["states"], data["logits"]):
-    #    print(actn.detach().cpu().numpy())
-    #    print(torch.argmax(actn).item())
-    #    plt.imshow(state[0].numpy())
-    #    plt.show()
+    state = val_runner.create_new_env(n_targs=None)
+    model.reset(1)
+
+    data = val_runner.collect_data(model, state, None)

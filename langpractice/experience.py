@@ -1,3 +1,5 @@
+import pandas as pd
+import os
 import torch
 import torch.nn.functional as F
 import torch.multiprocessing as mp
@@ -5,7 +7,7 @@ import numpy as np
 from langpractice.models import NullModel
 from langpractice.envs import SequentialEnvironment
 from langpractice.oracles import *
-from langpractice.utils.utils import try_key, sample_action, zipfian
+from langpractice.utils.utils import try_key, sample_action, zipfian, get_lang_labels
 from collections import deque
 
 if torch.cuda.is_available():
@@ -194,7 +196,7 @@ class ExperienceReplay(torch.utils.data.Dataset):
             raise StopIteration
 
     @staticmethod
-    def get_drops(grabs):
+    def get_drops(grabs, env_type=None):
         """
         Returns a tensor denoting steps in which the agent dropped an
         item. The tensor returned is actually a LongTensor, not a Bool
@@ -211,6 +213,8 @@ class ExperienceReplay(torch.utils.data.Dataset):
                 a tensor denoting if the agent dropped an item with a 1,
                 0 otherwise.
         """
+        if env_type=="gordongames-v4":
+            return torch.ones_like(grabs).long()
         if type(grabs) == torch.Tensor:
             drops = grabs.clone()
         else:
@@ -248,14 +252,26 @@ class DataCollector:
                     n_envs: int
                         the number of runners to instantiate
         """
-        # Check keys
         self.hyps = hyps
         self.batch_size = self.hyps['batch_size']
-        # Get observation shape
-        self.val_runner = ValidationRunner(self.hyps)
-        self.obs_shape = self.val_runner.env.shape
-        self.hyps['inpt_shape'] = self.val_runner.state_bookmark.shape
-        self.hyps["actn_size"] = self.val_runner.env.actn_size
+        # Create gating mechanisms
+        self.gate_q = mp.Queue(self.batch_size)
+        self.stop_q = mp.Queue(self.batch_size)
+        self.val_gate_q = mp.Queue(1)
+        self.val_stop_q = mp.Queue(1)
+        self.phase_q = mp.Queue(1)
+        self.phase_q.put(0)
+        # Get observation, actn, and lang shapes
+        self.validator = ValidationRunner(
+            self.hyps,
+            gate_q=self.val_gate_q,
+            stop_q=self.val_stop_q,
+            phase_q=self.phase_q
+        )
+        self.validator.create_new_env()
+        self.obs_shape = self.validator.env.shape
+        self.hyps['inpt_shape'] = self.validator.state_bookmark.shape
+        self.hyps["actn_size"] = self.validator.env.actn_size
         lang_range = try_key(
             self.hyps,
             "lang_range",
@@ -267,11 +283,6 @@ class DataCollector:
             self.hyps["lang_size"] = 3
         elif int(self.hyps["use_count_words"]) == 2:
             self.hyps["lang_size"] = 4
-        # Create gating mechanisms
-        self.gate_q = mp.Queue(self.batch_size)
-        self.stop_q = mp.Queue(self.batch_size)
-        self.phase_q = mp.Queue(1)
-        self.phase_q.put(0)
         # Initialize Experience Replay
         self.exp_replay = ExperienceReplay(**hyps)
         # Initialize runners
@@ -301,7 +312,8 @@ class DataCollector:
                 make sure the model's weights are shared so that they
                 can be updated over the course of the training.
         """
-        self.procs = []
+        if not hasattr(self, "procs"):
+            self.procs = []
         for i in range(len(self.runners)):
             if i > len(self.runners)//2: model = None
             proc = mp.Process(
@@ -311,6 +323,24 @@ class DataCollector:
             proc.start()
             self.procs.append(proc)
 
+    def init_validator_proc(self, model):
+        """
+        Initializes the validation runner process
+
+        Args:
+            model: torch Module
+                make sure the model's weights are shared so that they
+                can be updated over the course of the training.
+        """
+        if not hasattr(self, "procs"):
+            self.procs = []
+        proc = mp.Process(
+            target=self.validator.run,
+            args=(model,)
+        )
+        proc.start()
+        self.procs.append( proc )
+
     def await_runners(self):
         for i in range(self.hyps["batch_size"]):
             self.stop_q.get()
@@ -319,7 +349,16 @@ class DataCollector:
         for i in range(self.hyps["batch_size"]):
             self.gate_q.put(i)
 
+    def await_validator(self):
+        self.val_stop_q.get()
+
+    def dispatch_validator(self, epoch):
+        self.val_gate_q.put(epoch)
+
     def terminate_runners(self):
+        """
+        Includes the validation runner process
+        """
         for proc in self.procs:
             proc.terminate()
 
@@ -403,7 +442,7 @@ class Runner:
         env_type = self.hyps['env_type']
         self.oracle = globals()[self.hyps["oracle_type"]](env_type)
 
-    def create_new_env(self):
+    def create_new_env(self, n_targs=None):
         """
         This function simplifies making a new environment and storing
         all the variables associated with it. It uses the language
@@ -423,15 +462,16 @@ class Runner:
         else:
             # Set environment targ range to action range
             self.hyps["targ_range"] = self.hyps["actn_range"]
-        print("Current Phase:", self.phase)
-        print("Setting Env to Targ Range:", self.hyps["targ_range"])
-        self.env = SequentialEnvironment(**self.hyps)
+        hyps = {**self.hyps}
+        if n_targs is not None:
+            hyps["targ_range"] =  (n_targs, n_targs)
+        self.env = SequentialEnvironment(**hyps)
         state = next_state(
             self.env,
             self.obs_deque,
             obs=None,
             reset=True,
-            n_targs=sample_zipfian(self.hyps)
+            n_targs=sample_zipfian(hyps)
         )
         self.state_bookmark = state
         self.h_bookmark = None
@@ -534,81 +574,201 @@ class Runner:
             self.h_bookmark = (model.h, model.c)
 
 class ValidationRunner(Runner):
-    def __init__(self, hyps):
+    def __init__(self, hyps, gate_q=None, stop_q=None, phase_q=None):
         """
         Args:
             hyps: dict
                 keys: str
                     "gamma": reward decay coeficient
+                    "exp_len": number of steps to be taken in the
+                                environment
                     "n_frame_stack": number of frames to stack for
                                      creation of the mdp state
                     "preprocessor": function to preprocess raw
                                     observations
                     "env_type": type of gym environment to be interacted
                                 with. Follows OpenAI's gym api.
+                    "oracle_type": str
+                        the name of the Oracle Class to give the ideal
+                        action from the environment
+            gate_q: multiprocessing Queue.
+                Allows main process to control when rollouts should be
+                collected.
+            stop_q: multiprocessing Queue.
+                Used to indicate to main process that a rollout has
+                been collected.
+            phase_q: multiprocessing Queue.
+                Used to indicate from the main process that the phase
+                has changed.
         """
         self.hyps = {**hyps}
-        if try_key(self.hyps, "val_targ_range", None) is not None:
-            self.hyps["targ_range"] = self.hyps["val_targ_range"]
-        print("validation runner target range:",self.hyps["targ_range"])
+        self.gate_q = gate_q
+        self.stop_q = stop_q
+        self.phase_q = phase_q
+        if try_key(self.hyps, "val_targ_range", None) is None:
+            self.hyps["val_targ_range"] = self.hyps["targ_range"]
+        self.hyps["targ_range"] = self.hyps["val_targ_range"]
+        self.hyps["actn_range"] = self.hyps["val_targ_range"]
+        self.hyps["lang_range"] = self.hyps["val_targ_range"]
+        print("Validation runner target range:",self.hyps["targ_range"])
+        self.phase = 0
         self.obs_deque = deque(maxlen=hyps['n_frame_stack'])
-        self.env = SequentialEnvironment(**self.hyps)
-        state = next_state(
-            self.env,
-            self.obs_deque,
-            obs=None,
-            reset=True
-        )
-        self.state_bookmark = state
-        self.h_bookmark = None
-        self.ep_rew = 0
         self.oracle = globals()[self.hyps["oracle_type"]](**self.hyps)
 
-    def init_env(self, n_targs=None):
+    def rollout(self, epoch, model, *args, **kwargs):
         """
-        Handles the initialization of the environment.
+        rollout handles running the environment using the model's
+        predictions to direct the game's MDP. This rollout function
+        steps through each target quantity and runs the episodes to
+        completion. It then saves the language predictions and the
+        outcomes of the episodes.
 
         Args:
-            n_targs: int or None
-                the desired number of targets for all episodes. if
-                None, defaults to the self.hyps["targ_range"]
-        """
-        hyps = self.hyps
-        if n_targs is not None:
-            hyps = {**self.hyps, "targ_range": (n_targs, n_targs)}
-        self.env = SequentialEnvironment(**hyps)
-        state = next_state(
-            self.env,
-            self.obs_deque,
-            obs=None,
-            reset=True
-        )
-        self.state_bookmark = state
-        self.h_bookmark = None
-
-    def rollout(self, phase, model, n_tsteps, n_eps=None, n_targs=None):
-        """
-        rollout handles the actual rollout of the environment. It runs
-        for n steps in the game using the model to determine actions
-        in the environment. Returns collected data from model and
-        what the oracle would have done.
-
-        Args:
-            phase: int
-                the phase of the training. phase 1 and 2 are treated
-                the same. phase 0 uses the oracle for actions.
+            epoch: int
+                the current epoch
             model: torch Module
-            n_tsteps: int or None
-                number of steps to rollout. must not be None if n_eps
-                is None. if both n_tsteps and n_eps are not None, the
-                rollout ends at the sooner of the two.
-            n_eps: int or None
-                number of episodes to rollout. must not be None if
-                n_tsteps is None. if both n_tsteps and n_eps are not
-                None, the rollout ends at the sooner of the two.
-            n_targs: int or None
-                optional argument to specify the number of targets for
-                the collected episodes
+        """
+        if torch.cuda.is_available(): torch.cuda.empty_cache()
+        model.eval()
+
+        # Reset every on every validation run
+        rng = range(
+            self.hyps["targ_range"][0],
+            self.hyps["targ_range"][1]+1
+        )
+        for n_targs in rng:
+            state = self.create_new_env(n_targs=n_targs)
+            model.reset(1)
+
+            data = self.collect_data(model, state, n_targs)
+            lang_labels = get_lang_labels(
+                data["n_items"],
+                data["n_targs"],
+                max_label=model.lang_size-1,
+                use_count_words=self.hyps["use_count_words"]
+            )
+            drops = ExperienceReplay.get_drops(
+                data["grabs"],
+                env_type=self.hyps["env_type"]
+            )
+            self.save_lang_data(
+                data, lang_labels, drops, epoch, self.phase
+            )
+            self.save_ep_data(data, epoch, self.phase)
+
+    def save_lang_data(self,
+                       data,
+                       labels,
+                       drops,
+                       epoch,
+                       phase,
+                       save_name="validation_lang.csv"):
+        """
+        Saves the stats at the end of each episode collected from the
+        rollouts. Saves the data as a dataframe called `save_name`
+        within the model's save_folder.
+
+        Args:
+            data: dict
+                lang_preds: torch FloatTensor (K,N, L)
+                    the language prediction logits. K is the number
+                    of language outputs within the model
+                n_targs: torch LongTensor (N,)
+                    the number of target objects on the grid at this step
+                    of the episode
+                n_items: torch LongTensor (N,)
+                    the number of item objects on the grid at this step
+                    of the episode
+                n_aligned: torch LongTensor (N,)
+                    the number of aligned item objects on the grid at
+                    this step of the episode
+                dones: torch LongTensor (N,)
+                    1 if episode ended on this step, 0 otherwise
+            epoch: int
+            phase: int
+            save_name: str
+        """
+        inpts = {
+            "n_items":None,
+            "n_targs":None,
+            "n_aligned":None,
+            "pred":None,
+            "label":None,
+            "done":None
+        }
+        idxs = drops==1
+        if idxs.float().sum() <= 1: return
+        lang = torch.argmax(data["lang_preds"].mean(0), dim=-1) # (N,)
+
+        inpts["pred"] = lang[idxs]
+        inpts["label"] = labels[idxs]
+        inpts["n_targs"] = data["n_targs"][idxs]
+        inpts["n_items"] = data["n_items"][idxs]
+        inpts["n_aligned"] = data["n_aligned"][idxs]
+        inpts["done"] = data["dones"][idxs]
+        inpts = {k:v.cpu().data.numpy() for k,v in inpts.items()}
+
+        df = pd.DataFrame(inpts)
+        df["epoch"] = epoch
+        df["phase"] = self.phase
+        path = os.path.join(
+            self.hyps["save_folder"],
+            save_name
+        )
+        header = not os.path.exists(path)
+        df.to_csv(
+            path,
+            sep=",",
+            header=header,
+            mode="a"
+        )
+
+    def save_ep_data(self,
+                   data,
+                   epoch,
+                   phase,
+                   save_name="validation_stats.csv"):
+        """
+        Saves the stats at the end of each episode collected from the
+        rollouts. Saves the data as a dataframe called `save_name`
+        within the model's save_folder.
+
+        Args:
+            data: dict
+            epoch: int
+            phase: int
+            save_name: str
+        """
+        keys = ["n_items", "n_targs", "n_aligned"]
+        dones = data["dones"].reshape(-1)
+        inpts = {
+            key: data[key].reshape(-1)[dones==1] for key in keys
+        }
+        inpts = {k:v.cpu().data.numpy() for k,v in inpts.items()}
+        df = pd.DataFrame(inpts)
+        df["epoch"] = epoch
+        df["phase"] = self.phase
+        path = os.path.join(
+            self.hyps["save_folder"],
+            save_name
+        )
+        header = not os.path.exists(path)
+        df.to_csv(
+            path,
+            sep=",",
+            header=header,
+            mode="a"
+        )
+
+    def collect_data(self, model, state, n_targs=None):
+        """
+        Performs the actual rollouts using the model
+
+        Args:
+            model: Module
+            state: ndarray ? I think
+            n_targs: int
+                the number of targets for the environment to display
         Returns:
             data: dict
                 keys: str
@@ -640,78 +800,66 @@ class ValidationRunner(Runner):
                         environment variant
         """
         data = {
-            "states": [],
-            "actn_preds": [],
-            "lang_preds": [],
-            "actn_targs": [],
-            "rews":  [],
-            "dones": [],
-            "n_targs": [],
-            "n_items": [],
-            "n_aligned": [],
-            "grabs": [],
+            "states":[],
+            "actn_preds":[],
+            "lang_preds":[],
+            "actn_targs":[],
+            "rews":[],
+            "dones":[],
+            "n_targs":[],
+            "n_items":[],
+            "n_aligned":[],
+            "grabs":[],
         }
-        model.eval()
-        # Reset every on every validation run
-        model.reset(1)
-        self.init_env(n_targs=n_targs)
-
-        # bookmarks are really unnecessary because we reset the env
-        # every time we validate. But it was easier to leave the
-        # bookmarks to get the code working quicker
-        state = self.state_bookmark
-        with torch.no_grad():
-            ep_count = 0
-            step_count = 0
-            assert n_tsteps is not None or n_eps is not None
-            n_tsteps = np.inf if n_tsteps is None else n_tsteps
-            n_eps = np.inf if n_eps is None else n_eps
-            while ep_count < n_eps and step_count < n_tsteps:
-                # Collect the state of the environment
-                t_state = torch.FloatTensor(state) # (C, H, W)
-                data["states"].append(t_state)
-                # Get action prediction
-                inpt = t_state[None].to(DEVICE)
-                actn_pred, lang_pred = model.step(inpt)
-                data["actn_preds"].append(actn_pred)
-                # Batch Size is only ever 1
-                # lang_pred: (1,1,L)
-                if model.n_lang_denses == 1:
-                    lang = lang_pred[0].unsqueeze(0)
-                else:
-                    lang = torch.stack(lang_pred, dim=0)
-                # lang: (N,1,L)
-                data["lang_preds"].append(lang)
-                if try_key(self.hyps, "val_max_actn", False):
-                    actn = torch.argmax(actn_pred[0]).item()
-                else:
-                    actn = sample_action(
-                        F.softmax(actn_pred, dim=-1)
-                    ).item()
-                # get target action
-                targ = self.oracle(self.env)
-                data["actn_targs"].append(targ)
-                # Step the environment (use oracle if phase 0)
-                if phase == 0: actn = targ
-                obs, rew, done, info = self.env.step(actn)
-                state = next_state(
-                    self.env,
-                    self.obs_deque,
-                    obs=obs,
-                    reset=done
-                )
-                if done: model.reset(1)
-                data["dones"].append(int(done))
-                data["rews"].append(rew)
-                data["n_targs"].append(info["n_targs"])
-                data["n_items"].append(info["n_items"])
-                data["n_aligned"].append(info["n_aligned"])
-                data["grabs"].append(info["grab"])
-                if self.hyps["render"]: self.env.render()
-                ep_count += int(done)
-                step_count += 1
+        ep_count = 0
+        n_eps = try_key(self.hyps,"n_eval_eps",10)
+        while ep_count < n_eps:
+            # Collect the state of the environment
+            t_state = torch.FloatTensor(state) # (C, H, W)
+            data["states"].append(t_state)
+            # Get action prediction
+            inpt = t_state[None].to(DEVICE)
+            actn_pred, lang_pred = model.step(inpt)
+            data["actn_preds"].append(actn_pred)
+            # Batch Size is only ever 1
+            # lang_pred: (1,1,L)
+            if model.n_lang_denses == 1:
+                lang = lang_pred[0].unsqueeze(0)
+            else:
+                lang = torch.stack(lang_pred, dim=0)
+            # lang: (N,1,L) where N is number of lang models
+            data["lang_preds"].append(lang)
+            if try_key(self.hyps, "val_max_actn", False):
+                actn = torch.argmax(actn_pred[0]).item()
+            else:
+                actn = sample_action(
+                    F.softmax(actn_pred, dim=-1)
+                ).item()
+            # get target action
+            targ = self.oracle(self.env)
+            data["actn_targs"].append(targ)
+            # Step the environment (use oracle if phase 0)
+            if self.phase == 0: actn = targ
+            obs, rew, done, info = self.env.step(actn)
+            state = next_state(
+                self.env,
+                self.obs_deque,
+                obs=obs,
+                reset=done,
+                n_targs=n_targs
+            )
+            if done: model.reset(1)
+            data["dones"].append(int(done))
+            data["rews"].append(rew)
+            data["n_targs"].append(info["n_targs"])
+            data["n_items"].append(info["n_items"])
+            data["n_aligned"].append(info["n_aligned"])
+            data["grabs"].append(info["grab"])
+            if self.hyps["render"]: self.env.render()
+            ep_count += int(done)
         self.state_bookmark = state
         self.h_bookmark = (model.h.data, model.c.data)
+        # S stands for the collected sequence
         data["actn_preds"] = torch.cat(data["actn_preds"], dim=0) #(S,A)
         data["lang_preds"] = torch.cat(data["lang_preds"], dim=1) #(N,S,L)
         data["actn_targs"] = torch.LongTensor(data["actn_targs"])

@@ -145,6 +145,10 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
     "dense_noise": float
         the standard deviation of gaussian noise applied to the
         dense layers of the model. if 0, has no effect
+    "randomize_order": bool
+        determines if the order of data during training should be
+        randomized. the order of a sequence within the batch is
+        preserved.
 
     "env_type": str
         the name of the gym environment to be used for the training
@@ -192,39 +196,17 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         jump into the middle of an episode during training.
 
     "val_targ_range": list of ints (low, high) or None
-        the range of potential target counts during the validation
-        phase. both low and high are inclusive. only applies to
-        gordongames variants. if None, defaults to training range.
+        the range of target counts during the validation phase. both
+        low and high are inclusive. only applies to gordongames
+        variants. if None, defaults to training range.
     "val_max_actn": bool
         if true, actions during the validation phase are selected as
         the maximum argument over the model's action probability output.
         If False, actions are sampled from the action output with
         probability equal to the corresponding output probability
-    "n_val_samples": int
-        the number of validation loops to perform per training epoch.
-    "isolate_val_targs": int
-        if true, the number of targets for each validation sampling
-        is equal to 1+ the sampling index. So, if n_val_samples is
-        equal to 5 and `isolate_val_targs` is true, then the first
-        sampling will only use n_targs equal to 1. Then the second
-        sampling will use n_targs equal to 2, and the third uses 
-        n_targs equal to 3, etc.
-        If false, the number of targets will be randomized according
-        to the environment being used.
     "n_eval_eps": int or null
-        the number of episodes to collect for evaluation during one
-        validation loop. if null, n_eval_steps must be not null. If
-        both n_eval_eps and n_eval_steps are not None, the validation
-        collection will end at whichever comes sooner.
-    "n_eval_steps": int
-        the number of environment steps to collect for evaluation
-        during one validation loop. if null, n_eval_eps must be not null
-        If both n_eval_eps and n_eval_steps are not None, the validation
-        collection will end at whichever comes sooner.
-    "randomize_order": bool
-        determines if the order of data during training should be
-        randomized. the order of a sequence within the batch is
-        preserved.
+        the number of episodes to collect for each target value during
+        validation.
 
     "oracle_type": str
         the name of the class to use for the oracle. i.e. "GordonOracle"
