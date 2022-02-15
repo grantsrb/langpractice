@@ -134,32 +134,12 @@ def get_phase_checkpoints(folder,phase,checkpt_exts={'p', 'pt', 'pth'}):
     phase = str(phase)
     all_checkpts = get_checkpoints(folder, checkpt_exts)
     checkpts = []
-    for checkpt in checkpts:
+    for checkpt in all_checkpts:
         try:
             if checkpt.split("phase")[-1].split("_")[0] == phase:
                 checkpts.append(checkpt)
         except: pass
     return checkpts
-
-def load_phase_checkpoint(folder, phase, checkpt_exts={'p', 'pt', 'pth'}):
-    """
-    Finds and loads the most recent checkpoint of the phase that is
-    specified.
-
-    Args:
-        folder: str
-            path to the folder of interest
-        phase: int or str
-            the phase of the training that you would like to focus the
-            search on.
-        checkpt_exts: set of str
-            a set of checkpoint extensions to include in the checkpt search.
-    Returns:
-        checkpt: dict
-            the loaded checkpoint
-    """
-    checkpts = get_phase_checkpoints(folder, phase, checkpt_exts)
-    return load_checkpoint(checkpts[-1])
 
 def foldersort(x):
     """
@@ -232,7 +212,7 @@ def get_model_folders(main_folder, incl_full_path=False):
                     folders.append(sub_d)
     return sorted(folders, key=foldersort)
 
-def load_checkpoint(path,use_best=False):
+def load_checkpoint(path, use_best=False, phase=None):
     """
     Loads the save_dict into python. If the path is to a model_folder,
     the loaded checkpoint is the BEST checkpt if available, otherwise
@@ -243,6 +223,9 @@ def load_checkpoint(path,use_best=False):
             path to checkpoint file or model_folder
         use_best: bool
             if true, will load the best checkpt based on validation metrics
+        phase: int or str or None
+            the phase of the training that you would like to focus the
+            search on. if None, the latest phase is used
     Returns:
         checkpt: dict
             a dict that contains all the valuable information for the
@@ -256,7 +239,10 @@ def load_checkpoint(path,use_best=False):
         if use_best and os.path.exists(best_path):
             path = best_path 
         else:
-            checkpts = get_checkpoints(path)
+            if phase is None:
+                checkpts = get_checkpoints(path)
+            else:
+                checkpts = get_phase_checkpoints(path, phase=phase)
             if len(checkpts)==0: return None
             path = checkpts[-1]
     data = torch.load(path, map_location=torch.device("cpu"))
@@ -270,6 +256,7 @@ def load_checkpoint(path,use_best=False):
     return data
 
 def load_model(path, models, load_sd=True, use_best=False,
+                                           phase=None,
                                            verbose=True):
     """
     Loads the model architecture and state dict from a .pt or .pth
@@ -292,12 +279,15 @@ def load_model(path, models, load_sd=True, use_best=False,
     load_sd: bool
         if true, the saved state dict is loaded. Otherwise only the
         model architecture is loaded with a random initialization.
+    phase: str or int or None
+        the desired phase of the experiment. if None, defaults to latest
+        phase
     use_best: bool
         if true, will load the best model based on validation metrics
     """
     path = os.path.expanduser(path)
     hyps = None
-    data = load_checkpoint(path,use_best=use_best)
+    data = load_checkpoint(path,use_best=use_best, phase=phase)
     if 'hyps' in data:
         kwargs = data['hyps']
     else:
