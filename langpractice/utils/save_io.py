@@ -86,10 +86,12 @@ def get_checkpoints(folder, checkpt_exts={'p', 'pt', 'pth'}):
 
     folder: str
         path to the folder of interest
+    checkpt_exts: set of str
+        a set of checkpoint extensions to include in the checkpt search.
 
     Returns:
-    checkpts: list of str
-        the full paths to the checkpoints contained in the folder
+        checkpts: list of str
+            the full paths to the checkpoints contained in the folder
     """
     folder = os.path.expanduser(folder)
     assert os.path.isdir(folder)
@@ -111,6 +113,53 @@ def get_checkpoints(folder, checkpt_exts={'p', 'pt', 'pth'}):
         return (phase, epoch)
     checkpts = sorted(checkpts, key=sort_key)
     return checkpts
+
+def get_phase_checkpoints(folder,phase,checkpt_exts={'p', 'pt', 'pth'}):
+    """
+    Finds and returns all checkpoints of the phase that is specified.
+
+    Args:
+        folder: str
+            path to the folder of interest
+        phase: int or str
+            the phase of the training that you would like to focus the
+            search on.
+        checkpt_exts: set of str
+            a set of checkpoint extensions to include in the checkpt search.
+    Returns:
+        checkpts: list of str
+            the full paths to the checkpoints of the specified phase
+            contained in the folder
+    """
+    phase = str(phase)
+    all_checkpts = get_checkpoints(folder, checkpt_exts)
+    checkpts = []
+    for checkpt in checkpts:
+        try:
+            if checkpt.split("phase")[-1].split("_")[0] == phase:
+                checkpts.append(checkpt)
+        except: pass
+    return checkpts
+
+def load_phase_checkpoint(folder, phase, checkpt_exts={'p', 'pt', 'pth'}):
+    """
+    Finds and loads the most recent checkpoint of the phase that is
+    specified.
+
+    Args:
+        folder: str
+            path to the folder of interest
+        phase: int or str
+            the phase of the training that you would like to focus the
+            search on.
+        checkpt_exts: set of str
+            a set of checkpoint extensions to include in the checkpt search.
+    Returns:
+        checkpt: dict
+            the loaded checkpoint
+    """
+    checkpts = get_phase_checkpoints(folder, phase, checkpt_exts)
+    return load_checkpoint(checkpts[-1])
 
 def foldersort(x):
     """
