@@ -525,7 +525,7 @@ class Trainer:
                 if len(lang)==0:
                     print("lang:", lang)
                     print("drops:", drops)
-                    break
+                    continue
                 labels = labels.to(DEVICE)
                 loss += self.loss_fxn(lang, labels)
                 with torch.no_grad():
@@ -614,6 +614,7 @@ class Trainer:
             argmaxes = torch.argmax(logits, dim=-1).reshape(-1)
         except:
             print("logits:", logits)
+            return { prepender + "_acc": 0 }
         targs = targs.reshape(-1)
         acc = (argmaxes.long()==targs.long()).float().mean()
         accs = {
