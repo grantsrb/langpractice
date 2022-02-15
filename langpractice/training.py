@@ -2,7 +2,7 @@ from langpractice.experience import ExperienceReplay, DataCollector
 from langpractice.models import * # SimpleCNN, SimpleLSTM
 from langpractice.recorders import Recorder
 from langpractice.utils.save_io import load_checkpoint
-from langpractice.utils.utils import try_key
+from langpractice.utils.utils import try_key, get_lang_labels
 from langpractice.utils.training import get_resume_checkpt
 
 from torch.optim import Adam, RMSprop
@@ -48,16 +48,19 @@ def train(rank, hyps, verbose=True):
     # Initialize model
     model = make_model(hyps)
     model.cuda()
-    shared_model = None
-    if try_key(hyps, "trn_whls_epoch", None) is not None:
-        shared_model = model
-        shared_model.share_memory()
-        print("Sharing model with runners")
+    shared_model = copy.deepcopy(model)
+    shared_model.share_memory()
     # Begin collecting data
-    data_collector.init_runner_procs(shared_model)
+    if try_key(hyps, "trn_whls_epoch", None) is not None:
+        data_collector.init_runner_procs(shared_model)
+        print("Sharing model with runners")
+    else:
+        data_collector.init_runner_procs(None)
     data_collector.dispatch_runners()
     # Record experiment settings
     recorder = Recorder(hyps, model)
+    data_collector.validator.hyps["save_folder"] = hyps["save_folder"]
+    data_collector.init_validator_proc(shared_model)
     # initialize trainer
     trainer = Trainer(hyps, model, recorder, verbose=verbose)
     if not try_key(hyps,"skip_first_phase",False) and trainer.phase == 0:
@@ -69,6 +72,7 @@ def train(rank, hyps, verbose=True):
             data_collector,
             trainer,
             model,
+            shared_model,
             verbose=verbose
         )
     # Update phase accross training
@@ -92,6 +96,7 @@ def train(rank, hyps, verbose=True):
         data_collector,
         trainer,
         model,
+        shared_model,
         verbose=verbose
     )
     data_collector.terminate_runners()
@@ -135,7 +140,12 @@ def resume_epoch(trainer):
             return try_key(checkpt,"epoch",0)
     return 0
 
-def training_loop(n_epochs,data_collector,trainer,model,verbose=True):
+def training_loop(n_epochs,
+                  data_collector,
+                  trainer,
+                  model,
+                  shared_model,
+                  verbose=True):
     """
     The epoch level training loop.
 
@@ -145,9 +155,9 @@ def training_loop(n_epochs,data_collector,trainer,model,verbose=True):
         data_collector: DataCollector
         trainer: Trainer
         model: Model
+        shared_mode: Model
+            deep copy of model with shared weights
     """
-    if trainer.hyps["exp_name"] == "test":
-        trainer.hyps["n_val_samples"] = 1
     # Potentially modify starting epoch for resumption of previous
     # training. Defaults to 0 if not resuming or not same phase
     start_epoch = resume_epoch(trainer)
@@ -165,22 +175,25 @@ def training_loop(n_epochs,data_collector,trainer,model,verbose=True):
         # shared_exp tensors
         data_collector.await_runners()
         trainer.train(model, data_collector.exp_replay)
+
+        if epoch > start_epoch:
+            if verbose:
+                print("\nAwaiting validator for epoch", epoch-1)
+            data_collector.await_validator()
+        shared_model.load_state_dict(model.state_dict())
         data_collector.dispatch_runners()
-        if verbose: print("\nValidating")
-        n_targs = None
-        for val_sample in tqdm(range(trainer.hyps["n_val_samples"])):
-            if try_key(trainer.hyps, "isolate_val_targs", True):
-                n_targs = val_sample + 1
-            trainer.validate(epoch,
-                model,
-                data_collector,
-                n_targs=n_targs
-            )
+        if verbose:
+            print("\nDispatching validator")
+        data_collector.dispatch_validator(epoch)
+
         trainer.end_epoch(epoch)
         trn_whls = try_key(trainer.hyps, "trn_whls_epoch", None)
         trn_whls_off = trn_whls is not None and epoch >= trn_whls
         if trainer.phase != 0 and trn_whls_off:
             model.trn_whls = 0
+    if verbose:
+        print("Awaiting validator")
+    data_collector.await_validator()
 
 class Trainer:
     """
@@ -332,10 +345,11 @@ class Trainer:
                 drops = torch.ones_like(drops).long()
             n_items = data["n_items"]
             n_targs = data["n_targs"]
-            labels = self.get_lang_labels(
+            labels = get_lang_labels(
                 n_items,
                 n_targs,
-                max_label=model.lang_size-1
+                max_label=model.lang_size-1,
+                use_count_words=self.hyps["use_count_words"]
             )
 
             self.reset_model(model, len(obs))
@@ -376,97 +390,6 @@ class Trainer:
         self.scheduler.step(
             np.mean(self.recorder.metrics[key])
         )
-
-    def get_lang_labels(self, n_items, n_targs, max_label):
-        """
-        Determines the language labels based on the type of training.
-
-        Args:
-            n_items: torch Tensor (N,)
-                the count of the items on the board
-            n_targs: torch Tensor (N,)
-                the count of the targs on the board
-            max_label: int
-                the maximum allowed language label. can usually use
-                model.lang_size-1
-        """
-        labels = n_items.clone()
-        labels[labels>max_label] = max_label
-        if int(self.hyps["use_count_words"]) == 0:
-            labels[n_items<n_targs] = 0
-            labels[n_items==n_targs] = 1
-            labels[n_items>n_targs] = 2
-        elif int(self.hyps["use_count_words"]) == 2:
-            labels = self.get_piraha_labels(labels, n_items, n_targs)
-        return labels
-
-    def get_piraha_labels(self, labels, n_items, n_targs):
-        """
-        Converts the number of items that exist in the game (not
-        including the targets) to a count word in the piraha language.
-
-        Uses the following probablities for each count word conversion.
-        Probabilities taken from Frank 2008.
-            number 0:
-                labels: 0
-                probabilities: [1]
-            number 1:
-                labels: 1
-                probabilities: [1]
-            number 2:
-                labels: 2
-                probabilities: [1]
-            number 3:
-                labels: 2,3
-                probabilities: [.55, .45]
-            numbers 4-7:
-                labels: 2,3
-                probabilities: [.4, .6]
-            numbers 8 and above:
-                labels: 2,3
-                probabilities: [.3, .7]
-
-        Args:
-            labels: torch Tensor (N,)
-                the count of the items on the board (a clone of n_items
-                works just fine)
-            n_items: torch Tensor (N,)
-                the count of the items on the board
-            n_targs: torch Tensor (N,)
-                the count of the targs on the board
-        """
-        weights = {
-            "3":   torch.FloatTensor([.55, .45]),
-            "4-7": torch.FloatTensor([.4, .6]),
-            "8":   torch.FloatTensor([.3, .7])
-        }
-        labels[n_items==1] = 1
-        labels[n_items==2] = 2
-        # Sample the Piraha count words with the appropriate length 
-        # using weights found in Frank's 2008 "Number as a cog tech"
-        idx = (n_items==3)
-        l = len(labels[idx])
-        if l > 0:
-            labs = torch.multinomial(weights["3"], l, replacement=True)
-            # samples are 0 indexed, so add 2 for the proper label
-            labels[idx] = labs + 2
-
-        # Repeat previous step for numbers 4-7
-        idx = (n_items>=4)&(n_items<=7)
-        l = len(labels[idx])
-        if l > 0:
-            labs = torch.multinomial(weights["4-7"], l, replacement=True)
-            # samples are 0 indexed, so add 2 for the proper label
-            labels[idx] = labs + 2
-
-        # Repeat previous step for numbers 8 and greater
-        idx = (n_items>=8)
-        l = len(labels[idx])
-        if l > 0:
-            labs = torch.multinomial(weights["8"], l, replacement=True)
-            # samples are 0 indexed, so add 2 for the proper label
-            labels[idx] = labs + 2
-        return labels
 
     def get_loss_and_accs(self,
                           logits,
@@ -668,75 +591,6 @@ class Trainer:
             time.time()-iter_start
         )
         print(s, end=len(s)//4*" " + "\r")
-
-    def validate(self, epoch, model, data_collector, n_targs=None):
-        """
-        Validates the performance of the model directly on an
-        environment. Steps the learning rate scheduler based on the
-        performance of the model.
-
-        Args:
-            runner: ValidationRunner
-        """
-        if torch.cuda.is_available(): torch.cuda.empty_cache()
-        # run model directly on an environment
-        with torch.no_grad():
-            # Returned tensors are mainly of shape (n_eval_steps,)
-            model.reset(batch_size=1)
-            eval_data = data_collector.val_runner.rollout(
-                self.phase,
-                model,
-                n_tsteps=self.hyps["n_eval_steps"],
-                n_eps=self.hyps["n_eval_eps"],
-                n_targs=n_targs
-            )
-            lang_labels = self.get_lang_labels(
-                eval_data["n_items"],
-                eval_data["n_targs"],
-                max_label=model.lang_size-1
-            )
-            drops = data_collector.exp_replay.get_drops(
-                eval_data["grabs"]
-            )
-            if self.hyps["env_type"]=="gordongames-v4":
-                drops = torch.ones_like(drops).long()
-            loss, accs = self.get_loss_and_accs(
-                logits=eval_data["actn_preds"],
-                langs=eval_data["lang_preds"],
-                actns=eval_data["actn_targs"],
-                labels=lang_labels,
-                drops=drops,
-                n_targs=eval_data["n_targs"],
-                prepender="val"
-            )
-        eval_eps = self.hyps["n_eval_eps"]
-        eval_steps = self.hyps["n_eval_steps"]
-        divisor = eval_eps if eval_steps is None else eval_steps
-        avg_rew = eval_data["rews"].sum()/divisor
-        metrics = {
-            "val_loss": loss.item(),
-            "val_rew": avg_rew.item(),
-            **accs
-        }
-        # Extra metrics if using gordongames variant
-        keys = ["n_items", "n_targs", "n_aligned"]
-        dones = eval_data["dones"].reshape(-1)
-        inpts = {key: eval_data[key].reshape(-1) for key in keys}
-        inpts = {key: val[dones==1] for key,val in inpts.items()}
-        targ_accs = self.calc_targ_accs(
-            **inpts,
-            prepender="val"
-        )
-        metrics = {**metrics, **targ_accs}
-        inpts = {k:v.cpu().data.numpy() for k,v in inpts.items()}
-        inpts["epoch"] = [
-            epoch for i in range(len(inpts["n_items"]))
-        ]
-        inpts["phase"] = [
-            self.phase for i in range(len(inpts["n_items"]))
-        ]
-        self.recorder.to_df(**inpts)
-        self.recorder.track_loop(metrics)
 
     def calc_targ_accs(self,
         n_targs,
