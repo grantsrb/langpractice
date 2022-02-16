@@ -4,6 +4,13 @@ from langpractice.utils.training import run_training
 import torch.multiprocessing as mp
 import sys
 
+"""
+Just argue the path to a model folder that you would like to resume
+the training of
+
+$ python3 resume.py /path/to/model/folder/
+
+"""
 torch.autograd.set_detect_anomaly(True)
 
 if __name__ == "__main__":
