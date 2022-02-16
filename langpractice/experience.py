@@ -137,6 +137,20 @@ class ExperienceReplay(torch.utils.data.Dataset):
         if self.share_tensors:
             for key in self.shared_exp.keys():
                 self.shared_exp[key].share_memory_()
+        self.harvest_exp()
+    
+    def harvest_exp(self):
+        """
+        Copys the shared tensors so that the runners can continue
+        collecting without changing the data.
+
+        Returns:
+            exp: dict of tensors
+                deep copies the shared experience
+        """
+        self.exp = {
+            k: v.detach().clone() for k,v in self.shared_exp.items()
+        }
 
     def __len__(self):
         return len(self.shared_exp["rews"][0]) - self.seq_len
@@ -157,8 +171,8 @@ class ExperienceReplay(torch.utils.data.Dataset):
                     actns: torch long tensor (N, S)
         """
         data = dict()
-        for key in self.shared_exp.keys():
-            data[key] = self.shared_exp[key][:, idx: idx+self.seq_len]
+        for key in self.exp.keys():
+            data[key] = self.exp[key][:, idx: idx+self.seq_len]
         data["drops"] = self.get_drops(data["grabs"])
         return data
 
@@ -294,7 +308,7 @@ class DataCollector:
             seed = self.hyps["seed"] + offset + i
             temp_hyps = {**self.hyps, "seed": seed}
             runner = Runner(
-                self.exp_replay.shared_exp, 
+                self.exp_replay.shared_exp,
                 self.hyps,
                 self.gate_q,
                 self.stop_q,

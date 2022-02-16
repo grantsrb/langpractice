@@ -69,6 +69,18 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
     "save_root": str
         this value is prepended to the exp_name when creating the save
         folder for the hyperparameter search.
+    "resume_folder": str
+        path to a training to resume from. The epochs argued in this
+        hyperparameter set must be larger than where the resumed
+        training left off.
+    "lang_checkpt": str
+        path to a language checkpoint to initialize the model from.
+        If a model_folder is argued (instead of a specific checkpoint
+        file), the loaded weights will be from the last epoch of phase
+        0. This makes it possible to save time by using pretrained
+        language models. This will make the training skip straight to
+        the second phase but will leave the `skip_first_phase` parameter
+        unchanged.
     "description": str
         this is an option key used to write notes or a description of
         the hyperparameter search
