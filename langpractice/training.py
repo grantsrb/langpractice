@@ -113,8 +113,19 @@ def make_model(hyps):
     """
     model = globals()[hyps["model_type"]](**hyps).to(DEVICE)
     folder = try_key(hyps, "resume_folder", None)
+    init_checkpt = try_key(hyps, "init_checkpt", None)
+    lang_checkpt = try_key(hyps, "lang_checkpt", None)
     if folder is not None and folder != "":
         checkpt, _ = get_resume_checkpt(hyps, in_place=False)
+        model.load_state_dict(checkpt["state_dict"])
+    elif init_checkpt is not None:
+        print("Initializing from checkpoint", init_checkpt)
+        checkpt = load_checkpoint(init_checkpt)
+        model.load_state_dict(checkpt["state_dict"])
+    elif lang_checkpt is not None:
+        print("Loading language model", lang_checkpt)
+        print("Training will skip to second phase")
+        checkpt = load_checkpoint(lang_checkpt, phase=0)
         model.load_state_dict(checkpt["state_dict"])
     return model
 
@@ -174,18 +185,21 @@ def training_loop(n_epochs,
         # Run environments, automatically fills experience replay's
         # shared_exp tensors
         data_collector.await_runners()
+        data_collector.exp_replay.harvest_exp() # Copies the shared exp
         trainer.train(model, data_collector.exp_replay)
+        data_collector.dispatch_runners()
 
+        # Validate Model by Awaiting Validation Process
         if epoch > start_epoch:
             if verbose:
                 print("\nAwaiting validator for epoch", epoch-1)
             data_collector.await_validator()
         shared_model.load_state_dict(model.state_dict())
-        data_collector.dispatch_runners()
         if verbose:
             print("\nDispatching validator")
         data_collector.dispatch_validator(epoch)
 
+        # Clean up the epoch
         trainer.end_epoch(epoch)
         trn_whls = try_key(trainer.hyps, "trn_whls_epoch", None)
         trn_whls_off = trn_whls is not None and epoch >= trn_whls
@@ -240,9 +254,13 @@ class Trainer:
                 during its previous training
         """
         folder = try_key(self.hyps, "resume_folder", "")
+        lang_checkpt = try_key(self.hyps, "lang_checkpt", None)
         if folder is not None and folder != "":
             checkpt = load_checkpoint(folder)
             return try_key(checkpt, "phase", 0)
+        # Skip first phase if init from lang_checkpt
+        elif lang_checkpt is not None:
+            return self.hyps["second_phase"]
         return 0
 
     def set_optimizer_and_scheduler(self,
