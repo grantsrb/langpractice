@@ -184,9 +184,9 @@ class ExperienceReplay(torch.utils.data.Dataset):
         exiting iterable of this class will also be affected!
         """
         if self.randomize_order:
-            self.idx_order = torch.arange(self.__len__()).long()
-        else:
             self.idx_order = torch.randperm(self.__len__()).long()
+        else:
+            self.idx_order = torch.arange(self.__len__()).long()
         self.idx = 0
         return self
 

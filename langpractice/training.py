@@ -186,8 +186,8 @@ def training_loop(n_epochs,
         # shared_exp tensors
         data_collector.await_runners()
         data_collector.exp_replay.harvest_exp() # Copies the shared exp
-        trainer.train(model, data_collector.exp_replay)
         data_collector.dispatch_runners()
+        trainer.train(model, data_collector.exp_replay)
 
         # Validate Model by Awaiting Validation Process
         if epoch > start_epoch:
