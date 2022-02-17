@@ -101,6 +101,7 @@ class ExperienceReplay(torch.utils.data.Dataset):
                         gordongames environment
         """
         self.exp_len = exp_len
+        self.env_type = env_type
         self.batch_size = batch_size
         self.inpt_shape = inpt_shape
         self.seq_len = seq_len
@@ -173,7 +174,7 @@ class ExperienceReplay(torch.utils.data.Dataset):
         data = dict()
         for key in self.exp.keys():
             data[key] = self.exp[key][:, idx: idx+self.seq_len]
-        data["drops"] = self.get_drops(data["grabs"])
+        data["drops"] = self.get_drops(data["grabs"], self.env_type)
         return data
 
     def __iter__(self):
@@ -661,10 +662,13 @@ class ValidationRunner(Runner):
                 max_label=model.lang_size-1,
                 use_count_words=self.hyps["use_count_words"]
             )
-            drops = ExperienceReplay.get_drops(
-                data["grabs"],
-                env_type=self.hyps["env_type"]
-            )
+            if try_key(self.hyps, "lang_on_drops_only", True):
+                drops = ExperienceReplay.get_drops(
+                    data["grabs"],
+                    env_type=self.hyps["env_type"]
+                )
+            else:
+                drops = torch.ones_like(data["grabs"])
             self.save_lang_data(
                 data, lang_labels, drops, epoch, self.phase
             )
