@@ -50,6 +50,8 @@ def get_resume_checkpt(hyps, in_place=False, verbose=True):
     """
     ignore_keys = [
         'n_epochs',
+        "lang_epochs",
+        "actn_epochs",
         'rank',
         "n_eval_steps",
         "n_eval_eps",
