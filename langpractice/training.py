@@ -460,7 +460,6 @@ class Trainer:
             accs_array = []
             idxs = drops==1
             labels = labels[idxs]
-            temp_targs = n_targs[idxs]
             for lang in langs:
                 lang = lang.reshape(-1, lang.shape[-1])
                 lang = lang[idxs]
@@ -474,7 +473,7 @@ class Trainer:
                     accs = self.calc_accs( # accs is a dict of floats
                         logits=lang,
                         targs=labels,
-                        categories=temp_targs,
+                        categories=labels,
                         prepender=prepender+"_lang"
                     )
                     accs_array.append(accs)
