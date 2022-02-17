@@ -359,7 +359,8 @@ class Trainer:
             actns = data["actns"]
             dones = data["dones"]
             drops = data["drops"]
-            if self.hyps["env_type"]=="gordongames-v4":
+            if self.hyps["env_type"]=="gordongames-v4" or\
+                    not try_key(self.hyps, "lang_on_drops_only", True):
                 drops = torch.ones_like(drops).long()
             n_items = data["n_items"]
             n_targs = data["n_targs"]
