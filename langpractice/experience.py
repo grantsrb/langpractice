@@ -219,28 +219,33 @@ class ExperienceReplay(torch.utils.data.Dataset):
         ITEM.
 
         Args:
-            grabs: Long Tensor (N,)
+            grabs: Long Tensor (B,N)
                 a tensor denoting the item grabbed by the agent at
                 each timestep. Assumes 1 means PILE, and 2 means BUTTON
                 and 3 means ITEM
         Returns:
-            drops: Long Tensor (N,)
+            drops: Long Tensor (B,N)
                 a tensor denoting if the agent dropped an item with a 1,
                 0 otherwise.
         """
         if type(grabs) == torch.Tensor:
-            drops = grabs.clone()
+            drops = grabs.clone().long()
         else:
-            drops = grabs.copy()
+            drops = grabs.copy().astype("long")
         if env_type=="gordongames-v4":
+            drops[drops>0] = 1
             return drops
-        drops[grabs<3] = 0
-        drops[grabs>=3] = 1
+        drops[grabs!=3] = 0
+        drops[grabs==3] = 1
         # Looks for situations where the sum drops off to 0
-        drops[1:] = drops[1:] + drops[:-1]
+        if len(grabs.shape)==2:
+            drops[:, 1:] = drops[:, :-1] - drops[:, 1:]
+            drops[:,0] = 0
+        elif len(grabs.shape)==1:
+            drops[1:] = drops[:-1] - drops[1:]
+            drops[0] = 0
         drops[drops!=1] = 0
-        drops[grabs>=3] = 0
-        drops[0] = 0
+        drops[drops>0] = 1
         return drops
 
 class DataCollector:
@@ -662,13 +667,15 @@ class ValidationRunner(Runner):
                 max_label=model.lang_size-1,
                 use_count_words=self.hyps["use_count_words"]
             )
-            if try_key(self.hyps, "lang_on_drops_only", True):
+            if not try_key(self.hyps, "lang_on_drops_only", True) and\
+                    not (self.hyps["env_type"]=="gordongames-v4" and\
+                                    self.hyps["use_count_words"]==0):
+                drops = torch.ones_like(data["grabs"]).long()
+            else:
                 drops = ExperienceReplay.get_drops(
                     data["grabs"],
                     env_type=self.hyps["env_type"]
                 )
-            else:
-                drops = torch.ones_like(data["grabs"])
             self.save_lang_data(
                 data, lang_labels, drops, epoch, self.phase
             )

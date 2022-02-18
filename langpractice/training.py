@@ -8,7 +8,7 @@ from langpractice.utils.training import get_resume_checkpt
 from torch.optim import Adam, RMSprop
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.nn import CrossEntropyLoss
-from PIL import Image
+import matplotlib.pyplot as plt
 import torch
 import numpy as np
 import time
@@ -187,7 +187,7 @@ def training_loop(n_epochs,
         data_collector.await_runners()
         data_collector.exp_replay.harvest_exp() # Copies the shared exp
         data_collector.dispatch_runners()
-        trainer.train(model, data_collector.exp_replay)
+        trainer.train(model, data_collector.exp_replay, epoch)
 
         # Validate Model by Awaiting Validation Process
         if epoch > start_epoch:
@@ -331,7 +331,7 @@ class Trainer:
         else:
             model.reset_to_step(step=1)
 
-    def train(self, model, data_iter):
+    def train(self, model, data_iter, epoch):
         """
         This function handles the actual training. It loops through the
         available data from the experience replay to train the model.
@@ -359,8 +359,26 @@ class Trainer:
             actns = data["actns"]
             dones = data["dones"]
             drops = data["drops"]
-            if not try_key(self.hyps, "lang_on_drops_only", True):
+            if not try_key(self.hyps, "lang_on_drops_only", True) and\
+                    not (self.hyps["env_type"]=="gordongames-v4" and\
+                                    self.hyps["use_count_words"]==0):
                 drops = torch.ones_like(drops).long()
+            # Testing
+            #############
+            #if i == 0:
+            #    grabs = data["grabs"]
+            #    print("train grabs:")
+            #    for row in range(len(drops)):
+            #        print(grabs[row].cpu().numpy())
+            #    print("train drops:")
+            #    for row in range(len(drops)):
+            #        print(drops[row].cpu().numpy())
+
+            #    for row in range(len(obs)):
+            #        for _,o in enumerate(obs[row].detach().cpu().numpy()):
+            #            plt.imshow(o.transpose((1,2,0)))
+            #            plt.savefig("imgs/epoch{}_row{}_samp{}.png".format(epoch, row, _))
+            #############
             n_items = data["n_items"]
             n_targs = data["n_targs"]
             labels = get_lang_labels(
