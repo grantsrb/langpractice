@@ -460,6 +460,8 @@ class Trainer:
             accs_array = []
             idxs = drops==1
             labels = labels[idxs]
+            categories = labels
+            labels = labels.to(DEVICE)
             for lang in langs:
                 lang = lang.reshape(-1, lang.shape[-1])
                 lang = lang[idxs]
@@ -467,13 +469,12 @@ class Trainer:
                     print("lang:", lang)
                     print("drops:", drops)
                     continue
-                labels = labels.to(DEVICE)
                 loss += self.loss_fxn(lang, labels)
                 with torch.no_grad():
                     accs = self.calc_accs( # accs is a dict of floats
                         logits=lang,
                         targs=labels,
-                        categories=labels,
+                        categories=categories,
                         prepender=prepender+"_lang"
                     )
                     accs_array.append(accs)
