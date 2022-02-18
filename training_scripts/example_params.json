@@ -27,7 +27,7 @@
     "conv_noise": 0,
     "dense_noise": 0,
     "randomize_order": false,
-    "lang_on_drops_only": false,
+    "lang_on_drops_only": true,
 
     "env_type": "gordongames-v1",
     "harsh": true,
