@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import os
 import numpy as np
@@ -176,6 +177,14 @@ def get_save_folder(hyps):
     save_folder += hyps['search_keys']
     return save_folder
 
+def get_git_revision_hash():
+    """
+    Finds the current git hash
+    """
+    return subprocess.check_output(
+            ['git', 'rev-parse', 'HEAD']
+        ).decode('ascii').strip()
+
 def record_session(hyps, model):
     """
     Writes important parameters to file. If 'resume_folder' is an entry
@@ -195,6 +204,8 @@ def record_session(hyps, model):
     with open(os.path.join(sf,h+".txt"),mode) as f:
         dt_string = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         f.write(dt_string)
+        git_hash = get_git_revision_hash()
+        f.write("\nGit Hash: {}".format(git_hash))
         f.write("\n"+str(model)+'\n')
         for k in sorted(hyps.keys()):
             f.write(str(k) + ": " + str(hyps[k]) + "\n")
