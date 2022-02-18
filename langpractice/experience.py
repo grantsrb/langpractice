@@ -228,12 +228,12 @@ class ExperienceReplay(torch.utils.data.Dataset):
                 a tensor denoting if the agent dropped an item with a 1,
                 0 otherwise.
         """
-        if env_type=="gordongames-v4":
-            return torch.ones_like(grabs).long()
         if type(grabs) == torch.Tensor:
             drops = grabs.clone()
         else:
             drops = grabs.copy()
+        if env_type=="gordongames-v4":
+            return drops
         drops[grabs<3] = 0
         drops[grabs>=3] = 1
         # Looks for situations where the sum drops off to 0
