@@ -363,8 +363,14 @@ class Trainer:
                     not (self.hyps["env_type"]=="gordongames-v4" and\
                                     self.hyps["use_count_words"]==0):
                 drops = torch.ones_like(drops).long()
-            # Testing
-            #############
+            # In case no drops occurred throughout entire batch, we
+            # randomly sample places to predict the number of items
+            if drops.sum()<=(0.1*len(drops)):
+                rand = torch.rand(drops.shape)
+                drops[rand>=0.9] = 1
+
+            ## Testing
+            ##############
             #if i == 0:
             #    grabs = data["grabs"]
             #    print("train grabs:")
