@@ -47,13 +47,8 @@ class ExperienceReplay(torch.utils.data.Dataset):
     parallelized.
     """
     def __init__(self,
-        exp_len,
-        batch_size,
-        inpt_shape,
-        seq_len,
-        randomize_order,
+        hyps,
         share_tensors=True,
-        env_type=None,
         *args,
         **kwargs
     ):
@@ -100,12 +95,13 @@ class ExperienceReplay(torch.utils.data.Dataset):
                         the number of aligned items in the env if using
                         gordongames environment
         """
-        self.exp_len = exp_len
-        self.env_type = env_type
-        self.batch_size = batch_size
-        self.inpt_shape = inpt_shape
-        self.seq_len = seq_len
-        self.randomize_order = randomize_order
+        self.hyps = hyps
+        self.exp_len = self.hyps["exp_len"]
+        self.env_type = self.hyps["env_type"]
+        self.batch_size = self.hyps["batch_size"]
+        self.inpt_shape = self.hyps["inpt_shape"]
+        self.seq_len = self.hyps["seq_len"]
+        self.randomize_order = self.hyps["randomize_order"]
         self.share_tensors = share_tensors
         assert self.exp_len > self.seq_len,\
             "sequence length must be less than total experience length"
@@ -129,8 +125,10 @@ class ExperienceReplay(torch.utils.data.Dataset):
                     self.exp_len
                 )).long(),
         }
-        keys = ["n_targs", "n_items", "n_aligned", "grabs"]
-        for key in keys:
+        self.info_keys = [
+            "n_targs","n_items","n_aligned","grabs","disp_targs"
+        ]
+        for key in self.info_keys:
             self.shared_exp[key] = torch.zeros((
                 self.batch_size,
                 self.exp_len
@@ -174,7 +172,11 @@ class ExperienceReplay(torch.utils.data.Dataset):
         data = dict()
         for key in self.exp.keys():
             data[key] = self.exp[key][:, idx: idx+self.seq_len]
-        data["drops"] = self.get_drops(data["grabs"], self.env_type)
+        data["drops"] = self.get_drops(
+            self.hyps,
+            data["grabs"],
+            data["disp_targs"]
+        )
         return data
 
     def __iter__(self):
@@ -211,29 +213,40 @@ class ExperienceReplay(torch.utils.data.Dataset):
             raise StopIteration
 
     @staticmethod
-    def get_drops(grabs, env_type=None):
+    def get_drops(hyps, grabs, disp_targs):
         """
         Returns a tensor denoting steps in which the agent dropped an
-        item. The tensor returned is actually a LongTensor, not a Bool
+        item. WARNING: this tensor has been bastardized to simply denote
+        when the agent should make a language prediction about n_items.
+        The tensor returned is also actually a LongTensor, not a Bool
         Tensor. Assumes 1 means PILE, and 2 means BUTTON and 3 means
-        ITEM.
+        ITEM within the grabs tensor.
 
         Args:
+            hyps: dict
+                the hyperparameters
             grabs: Long Tensor (B,N)
                 a tensor denoting the item grabbed by the agent at
                 each timestep. Assumes 1 means PILE, and 2 means BUTTON
                 and 3 means ITEM
+            disp_targs: torch LongTensor (..., N)
+                0s denote the environment was not displaying the targets
+                anymore. 1s denote the targets were displayed
         Returns:
             drops: Long Tensor (B,N)
                 a tensor denoting if the agent dropped an item with a 1,
-                0 otherwise.
+                0 otherwise. See WARNING in description
         """
-        if type(grabs) == torch.Tensor:
-            drops = grabs.clone().long()
-        else:
-            drops = grabs.copy().astype("long")
-        if env_type=="gordongames-v4":
+        env_types = {"gordongames-v4", "gordongames-v7"}
+        if type(grabs) == type(np.asarray([])):
+            grabs = torch.from_numpy(grabs).long()
+        if not try_key(hyps, "lang_on_drops_only", True):
+            return torch.ones_like(grabs)
+        drops = grabs.clone().long()
+
+        if hyps["env_type"] in env_types:
             drops[drops>0] = 1
+            drops = drops | disp_targs
             return drops
         drops[grabs!=3] = 0
         drops[grabs==3] = 1
@@ -246,6 +259,10 @@ class ExperienceReplay(torch.utils.data.Dataset):
             drops[0] = 0
         drops[drops!=1] = 0
         drops[drops>0] = 1
+        # In case less than 8% of the batch are drops, we set the last
+        # column to 1
+        if drops.sum()<=(0.08*len(drops)):
+            drops[..., -1:] = 1
         return drops
 
 class DataCollector:
@@ -304,7 +321,7 @@ class DataCollector:
         elif int(self.hyps["use_count_words"]) == 2:
             self.hyps["lang_size"] = 4
         # Initialize Experience Replay
-        self.exp_replay = ExperienceReplay(**hyps)
+        self.exp_replay = ExperienceReplay(hyps)
         # Initialize runners
         self.runners = []
         offset = try_key(self.hyps, 'runner_seed_offset', 0)
@@ -574,13 +591,9 @@ class Runner:
             self.shared_exp['rews'][idx,i] = rew
             self.shared_exp['dones'][idx,i] = float(done)
             self.shared_exp['actns'][idx,i] = actn_targ
-            if "n_targs" in info:
-                self.shared_exp["n_targs"][idx,i] = info["n_targs"]
-                self.shared_exp["n_items"][idx,i] = info["n_items"]
-                self.shared_exp["n_aligned"][idx,i] = info["n_aligned"]
-                # tracks what object the player is grabbing. 0 means
-                # the agent is not grabbing anything
-                self.shared_exp["grabs"][idx,i] = info["grab"]
+            for k in info.keys():
+                if k in self.shared_exp:
+                    self.shared_exp[k][idx,i] = info[k]
             state = next_state(
                 self.env,
                 self.obs_deque,
@@ -667,15 +680,11 @@ class ValidationRunner(Runner):
                 max_label=model.lang_size-1,
                 use_count_words=self.hyps["use_count_words"]
             )
-            if not try_key(self.hyps, "lang_on_drops_only", True) and\
-                    not (self.hyps["env_type"]=="gordongames-v4" and\
-                                    self.hyps["use_count_words"]==0):
-                drops = torch.ones_like(data["grabs"]).long()
-            else:
-                drops = ExperienceReplay.get_drops(
-                    data["grabs"],
-                    env_type=self.hyps["env_type"]
-                )
+            drops = ExperienceReplay.get_drops(
+                self.hyps,
+                data["grabs"],
+                data["disp_targs"]
+            )
             self.save_lang_data(
                 data, lang_labels, drops, epoch, self.phase
             )
@@ -721,7 +730,7 @@ class ValidationRunner(Runner):
             "label":None,
             "done":None
         }
-        idxs = drops==1
+        idxs = drops>=1
         if idxs.float().sum() <= 1: return
         lang = torch.argmax(data["lang_preds"].mean(0), dim=-1) # (N,)
 
@@ -835,6 +844,7 @@ class ValidationRunner(Runner):
             "n_items":[],
             "n_aligned":[],
             "grabs":[],
+            "disp_targs":[],
         }
         ep_count = 0
         n_eps = try_key(self.hyps,"n_eval_eps",10)
@@ -880,6 +890,7 @@ class ValidationRunner(Runner):
             data["n_items"].append(info["n_items"])
             data["n_aligned"].append(info["n_aligned"])
             data["grabs"].append(info["grab"])
+            data["disp_targs"].append(info["disp_targs"])
             if self.hyps["render"]: self.env.render()
             ep_count += int(done)
         self.state_bookmark = state
@@ -894,5 +905,6 @@ class ValidationRunner(Runner):
         data["n_targs"] = torch.LongTensor(data["n_targs"])
         data["n_items"] = torch.LongTensor(data["n_items"])
         data["n_aligned"] = torch.LongTensor(data["n_aligned"])
+        data["disp_targs"] = torch.LongTensor(data["disp_targs"])
         return data
 

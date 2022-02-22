@@ -1,4 +1,4 @@
-from langpractice.experience import ExperienceReplay, DataCollector
+from langpractice.experience import DataCollector
 from langpractice.models import * # SimpleCNN, SimpleLSTM
 from langpractice.recorders import Recorder
 from langpractice.utils.save_io import load_checkpoint
@@ -359,15 +359,8 @@ class Trainer:
             actns = data["actns"]
             dones = data["dones"]
             drops = data["drops"]
-            if not try_key(self.hyps, "lang_on_drops_only", True) and\
-                    not (self.hyps["env_type"]=="gordongames-v4" and\
-                                    self.hyps["use_count_words"]==0):
-                drops = torch.ones_like(drops).long()
-            # In case no drops occurred throughout entire batch, we
-            # randomly sample places to predict the number of items
-            if drops.sum()<=(0.1*len(drops)):
-                rand = torch.rand(drops.shape)
-                drops[rand>=0.9] = 1
+            n_items = data["n_items"]
+            n_targs = data["n_targs"]
 
             ## Testing
             ##############
@@ -376,17 +369,18 @@ class Trainer:
             #    print("train grabs:")
             #    for row in range(len(drops)):
             #        print(grabs[row].cpu().numpy())
+            #    print("train n_items:")
+            #    for row in range(len(drops)):
+            #        print(n_items[row].cpu().numpy())
             #    print("train drops:")
             #    for row in range(len(drops)):
             #        print(drops[row].cpu().numpy())
 
             #    for row in range(len(obs)):
             #        for _,o in enumerate(obs[row].detach().cpu().numpy()):
-            #            plt.imshow(o.transpose((1,2,0)))
+            #            plt.imshow(o.transpose((1,2,0)).squeeze())
             #            plt.savefig("imgs/epoch{}_row{}_samp{}.png".format(epoch, row, _))
             #############
-            n_items = data["n_items"]
-            n_targs = data["n_targs"]
             labels = get_lang_labels(
                 n_items,
                 n_targs,
