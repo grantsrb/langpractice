@@ -3,6 +3,7 @@
     "exp_num_offset": 0,
     "save_root": "./",
     "resume_folder":"",
+    "lang_checkpt":"",
     "description": "",
     "render": false,
     "del_prev_sd": true,

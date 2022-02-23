@@ -118,11 +118,11 @@ def make_model(hyps):
     if folder is not None and folder != "":
         checkpt, _ = get_resume_checkpt(hyps, in_place=False)
         model.load_state_dict(checkpt["state_dict"])
-    elif init_checkpt is not None:
+    elif init_checkpt is not None and init_checkpt.strip()!="":
         print("Initializing from checkpoint", init_checkpt)
         checkpt = load_checkpoint(init_checkpt)
         model.load_state_dict(checkpt["state_dict"])
-    elif lang_checkpt is not None:
+    elif lang_checkpt is not None and lang_checkpt.strip()!="":
         print("Loading language model", lang_checkpt)
         print("Training will skip to second phase")
         checkpt = load_checkpoint(lang_checkpt, phase=0)
@@ -259,7 +259,7 @@ class Trainer:
             checkpt = load_checkpoint(folder)
             return try_key(checkpt, "phase", 0)
         # Skip first phase if init from lang_checkpt
-        elif lang_checkpt is not None:
+        elif lang_checkpt is not None and lang_checkpt.strip()!="":
             return self.hyps["second_phase"]
         return 0
 

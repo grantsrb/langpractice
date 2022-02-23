@@ -174,7 +174,7 @@ def get_save_folder(hyps):
     save_folder = "{}/{}_{}".format(hyps['main_path'],
                                     hyps['exp_name'],
                                     hyps['exp_num'])
-    save_folder += hyps['search_keys']
+    save_folder += hyps['search_keys'].replace("/", "")
     return save_folder
 
 def get_git_revision_hash():
