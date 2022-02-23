@@ -259,11 +259,11 @@ class ExperienceReplay(torch.utils.data.Dataset):
             drops[0] = 0
         drops[drops!=1] = 0
         drops[drops>0] = 1
-        ## In case less than 5% of the batch are drops, we set the last
-        ## column to 1
-        #perc_threshold = 0.05
-        #if drops.sum()<=(perc_threshold*len(drops)):
-        #    drops[..., -1:] = 1
+        # In case less than 5% of the batch are drops, we set the last
+        # column to 1
+        perc_threshold = 0.05
+        if drops.sum()<=(perc_threshold*len(drops)):
+            drops[..., -1:] = 1
         return drops
 
 class DataCollector:
@@ -333,7 +333,7 @@ class DataCollector:
             temp_hyps = {**self.hyps, "seed": seed}
             runner = Runner(
                 self.exp_replay.shared_exp,
-                self.hyps,
+                temp_hyps,
                 self.gate_q,
                 self.stop_q,
                 self.phase_q
@@ -592,9 +592,12 @@ class Runner:
             self.shared_exp['rews'][idx,i] = rew
             self.shared_exp['dones'][idx,i] = float(done)
             self.shared_exp['actns'][idx,i] = actn_targ
-            for k in info.keys():
-                if k in self.shared_exp:
-                    self.shared_exp[k][idx,i] = info[k]
+            self.shared_exp["n_items"][idx,i] = info["n_items"]
+            self.shared_exp["n_targs"][idx,i] = info["n_targs"]
+            self.shared_exp["n_aligned"][idx,i] = info["n_aligned"]
+            self.shared_exp["grabs"][idx,i] = int(info["grab"])
+            self.shared_exp["disp_targs"][idx,i] = int(info["disp_targs"])
+
             state = next_state(
                 self.env,
                 self.obs_deque,
