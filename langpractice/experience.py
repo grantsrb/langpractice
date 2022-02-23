@@ -259,10 +259,11 @@ class ExperienceReplay(torch.utils.data.Dataset):
             drops[0] = 0
         drops[drops!=1] = 0
         drops[drops>0] = 1
-        # In case less than 8% of the batch are drops, we set the last
-        # column to 1
-        if drops.sum()<=(0.08*len(drops)):
-            drops[..., -1:] = 1
+        ## In case less than 5% of the batch are drops, we set the last
+        ## column to 1
+        #perc_threshold = 0.05
+        #if drops.sum()<=(perc_threshold*len(drops)):
+        #    drops[..., -1:] = 1
         return drops
 
 class DataCollector:
