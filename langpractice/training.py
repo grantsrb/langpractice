@@ -361,6 +361,9 @@ class Trainer:
             drops = data["drops"]
             n_items = data["n_items"]
             n_targs = data["n_targs"]
+            if drops.sum() == 0:
+                print("No drops in loop", i, "... continuing")
+                continue
 
             ## Testing
             ##############
