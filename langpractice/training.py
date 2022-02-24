@@ -362,25 +362,25 @@ class Trainer:
             n_items = data["n_items"]
             n_targs = data["n_targs"]
 
-            # Testing
-            #############
-            if i == 0:
-                grabs = data["grabs"]
-                print("train grabs:")
-                for row in range(len(drops)):
-                    print(grabs[row].cpu().numpy())
-                print("train n_items:")
-                for row in range(len(drops)):
-                    print(n_items[row].cpu().numpy())
-                print("train drops:")
-                for row in range(len(drops)):
-                    print(drops[row].cpu().numpy())
+            ## Testing
+            ##############
+            #if i == 0:
+            #    grabs = data["grabs"]
+            #    print("train grabs:")
+            #    for row in range(len(drops)):
+            #        print(grabs[row].cpu().numpy())
+            #    print("train n_items:")
+            #    for row in range(len(drops)):
+            #        print(n_items[row].cpu().numpy())
+            #    print("train drops:")
+            #    for row in range(len(drops)):
+            #        print(drops[row].cpu().numpy())
 
-                for row in range(len(obs)):
-                    for _,o in enumerate(obs[row].detach().cpu().numpy()):
-                        plt.imshow(o.transpose((1,2,0)).squeeze())
-                        plt.savefig("imgs/epoch{}_row{}_samp{}.png".format(epoch, row, _))
-            ############
+            #    for row in range(len(obs)):
+            #        for _,o in enumerate(obs[row].detach().cpu().numpy()):
+            #            plt.imshow(o.transpose((1,2,0)).squeeze())
+            #            plt.savefig("imgs/epoch{}_row{}_samp{}.png".format(epoch, row, _))
+            #############
 
             if drops.sum() == 0:
                 print("No drops in loop", i, "... continuing")
