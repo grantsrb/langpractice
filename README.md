@@ -157,10 +157,12 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
     "dense_noise": float
         the standard deviation of gaussian noise applied to the
         dense layers of the model. if 0, has no effect
-    "randomize_order": bool
-        determines if the order of data during training should be
-        randomized. the order of a sequence within the batch is
-        preserved.
+    "feat_drop_p": float
+        the probability of zeroing a neuron within the features
+        of the cnn output.
+    "drop_p": float
+        the probability of zeroing a neuron within the dense
+        layers of the network.
     "lang_on_drops_only": bool
         if true, language predictions only occur when the agent drops
         an object. Otherwise the language predictions occur at every

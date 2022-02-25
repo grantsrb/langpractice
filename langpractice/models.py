@@ -23,6 +23,8 @@ class Model(torch.nn.Module):
         lnorm=False,
         conv_noise=0,
         dense_noise=0,
+        feat_drop_p=0,
+        drop_p=0,
         *args, **kwargs
     ):
         """
@@ -48,6 +50,12 @@ class Model(torch.nn.Module):
             dense_noise: float
                 the standard deviation of noise added after each
                 dense operation (except for the output)
+            feat_drop_p: float
+                the probability of zeroing a neuron within the features
+                of the cnn output.
+            drop_p: float
+                the probability of zeroing a neuron within the dense
+                layers of the network.
         """
         super().__init__()
         self.inpt_shape = inpt_shape
@@ -58,6 +66,8 @@ class Model(torch.nn.Module):
         self.lnorm = lnorm
         self.conv_noise = conv_noise
         self.dense_noise = dense_noise
+        self.feat_drop_p = feat_drop_p
+        self.drop_p = drop_p
         self.n_lang_denses = n_lang_denses
         self._trn_whls = nn.Parameter(torch.ones(1), requires_grad=False)
 
@@ -298,16 +308,27 @@ class SimpleCNN(Model):
                 padding=self.paddings[i]
             )
             self.shapes.append(shape)
+        if self.feat_drop_p > 0:
+            modules.append(nn.Dropout(self.feat_drop_p))
         self.features = nn.Sequential(*modules)
         self.flat_size = int(np.prod(shape))
 
         # Make Action MLP
-        modules = [
-            Flatten(),
-            nn.Linear(self.flat_size, self.h_size),
-            GaussianNoise(self.dense_noise),
-            nn.ReLU()
-        ]
+        if self.drop_p > 0:
+            modules = [
+                Flatten(),
+                nn.Linear(self.flat_size, self.h_size),
+                nn.Dropout(self.drop_p),
+                GaussianNoise(self.dense_noise),
+                nn.ReLU()
+            ]
+        else:
+            modules = [
+                Flatten(),
+                nn.Linear(self.flat_size, self.h_size),
+                GaussianNoise(self.dense_noise),
+                nn.ReLU()
+            ]
         if self.bnorm:
             modules.append(nn.BatchNorm1d(self.h_size))
         self.actn_dense = nn.Sequential(
@@ -318,11 +339,19 @@ class SimpleCNN(Model):
         # Make Language MLP
         self.lang_denses = nn.ModuleList([])
         for i in range(self.n_lang_denses):
-            modules = [
-                Flatten(),
-                nn.Linear(self.flat_size, self.h_size),
-                nn.ReLU()
-            ]
+            if self.drop_p > 0:
+                modules = [
+                    Flatten(),
+                    nn.Linear(self.flat_size, self.h_size),
+                    nn.Dropout(self.drop_p),
+                    nn.ReLU()
+                ]
+            else:
+                modules = [
+                    Flatten(),
+                    nn.Linear(self.flat_size, self.h_size),
+                    nn.ReLU()
+                ]
             if self.bnorm:
                 modules.append(nn.BatchNorm1d(self.h_size))
             self.lang_denses.append(nn.Sequential(
@@ -379,21 +408,39 @@ class SimpleLSTM(Model):
         self.lstm = nn.LSTMCell(self.flat_size, self.h_size)
 
         # Action Dense
-        self.actn_dense = nn.Sequential(
-            GaussianNoise(self.dense_noise),
-            nn.ReLU(),
-            nn.Linear(self.h_size, self.actn_size),
-        )
+        if self.drop_p > 0:
+            self.actn_dense = nn.Sequential(
+                nn.Dropout(self.drop_p),
+                GaussianNoise(self.dense_noise),
+                nn.ReLU(),
+                nn.Linear(self.h_size, self.actn_size),
+            )
+        else:
+            self.actn_dense = nn.Sequential(
+                GaussianNoise(self.dense_noise),
+                nn.ReLU(),
+                nn.Linear(self.h_size, self.actn_size),
+            )
+
 
         # Lang Dense
         self.lang_denses = nn.ModuleList([])
         for i in range(self.n_lang_denses):
-            self.lang_denses.append(nn.Sequential(
-                nn.ReLU(),
-                nn.Linear(self.h_size, 2*self.h_size),
-                nn.ReLU(),
-                nn.Linear(2*self.h_size, self.lang_size),
-            ))
+            if self.drop_p > 0:
+                self.lang_denses.append(nn.Sequential(
+                    nn.ReLU(),
+                    nn.Linear(self.h_size, 2*self.h_size),
+                    nn.Dropout(self.drop_p),
+                    nn.ReLU(),
+                    nn.Linear(2*self.h_size, self.lang_size),
+                ))
+            else:
+                self.lang_denses.append(nn.Sequential(
+                    nn.ReLU(),
+                    nn.Linear(self.h_size, 2*self.h_size),
+                    nn.ReLU(),
+                    nn.Linear(2*self.h_size, self.lang_size),
+                ))
 
         print("lang_denses:", self.n_lang_denses)
         # Memory
