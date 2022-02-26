@@ -13,10 +13,10 @@ automatically selects the best model from the training.
 $ python3 record_model.py exp_name/model_folder/
 """
 
-n_episodes = 3 # Set this to longer to get more unique game xp
-repeat = 4 # Set this to longer to linger on images longer
+n_episodes = 2 # Set this to longer to get more unique game xp
+repeat = 6 # Set this to longer to linger on images longer
 fps = 30
-targ_range = (3,10)
+targ_range = (1,5)
 
 if __name__ == "__main__":
     model_folder = sys.argv[1]
@@ -44,8 +44,9 @@ if __name__ == "__main__":
     print("collected data:", frames.shape)
     frames = np.repeat(frames.transpose((0,2,3,1)), 3, axis=-1)
 
-    frames = frames/np.max(np.abs(frames))
-    frames = frames + np.min(frames)
+    frames[frames==0] = -2
+    frames = (frames+2)
+    frames = frames/np.max(frames)
     frames = np.uint8(frames*255).repeat(3,axis=1).repeat(3,axis=2)
     frames = np.repeat(frames, repeat, axis=0)
     output_name = hyps["exp_name"] + str(hyps["exp_num"]) + ".mp4"
