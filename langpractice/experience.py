@@ -488,7 +488,6 @@ class Runner:
         of the experiment. Phase 0 means language, anything else means
         action.
         """
-        self.hyps = {**self.hyps}
         if self.phase == 0:
             # Set defaults
             if try_key(self.hyps, "actn_range", None) is None:
@@ -611,7 +610,11 @@ class Runner:
             self.h_bookmark = (model.h, model.c)
 
 class ValidationRunner(Runner):
-    def __init__(self, hyps, gate_q=None, stop_q=None, phase_q=None):
+    def __init__(self, hyps,
+                       gate_q=None,
+                       stop_q=None,
+                       phase_q=None,
+                       phase=0):
         """
         Args:
             hyps: dict
@@ -637,6 +640,8 @@ class ValidationRunner(Runner):
             phase_q: multiprocessing Queue.
                 Used to indicate from the main process that the phase
                 has changed.
+            phase: int
+                the initial phase
         """
         self.hyps = {**hyps}
         self.gate_q = gate_q
@@ -648,7 +653,7 @@ class ValidationRunner(Runner):
         self.hyps["actn_range"] = self.hyps["val_targ_range"]
         self.hyps["lang_range"] = self.hyps["val_targ_range"]
         print("Validation runner target range:",self.hyps["targ_range"])
-        self.phase = 0
+        self.phase = phase
         self.obs_deque = deque(maxlen=hyps['n_frame_stack'])
         self.oracle = globals()[self.hyps["oracle_type"]](**self.hyps)
 
@@ -854,8 +859,8 @@ class ValidationRunner(Runner):
         n_eps = try_key(self.hyps,"n_eval_eps",10)
         while ep_count < n_eps:
             # Collect the state of the environment
+            data["states"].append(state)
             t_state = torch.FloatTensor(state) # (C, H, W)
-            data["states"].append(t_state)
             # Get action prediction
             inpt = t_state[None].to(DEVICE)
             actn_pred, lang_pred = model.step(inpt)
