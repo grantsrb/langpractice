@@ -26,25 +26,34 @@ or
 import sys
 import os
 from langpractice.utils.utils import load_json, save_json
+from datetime import datetime
 
 # os.system("tmux new -s tes")
 # tmux new-session -d -s \"myTempSession\" /opt/my_script.sh
 
 def distr_ranges(script, meta, rng_paths):
     exp_name = load_json(meta["hyperparams"])["exp_name"]
-    
+    stdout_folder = "./tmux_logs/"
+    if not os.path.exists(stdout_folder):
+        os.mkdir(stdout_folder)
+
     tmux_sesh = "tmux new -d -s"
     exe = "python3 {}".format(script)
     for rng_path, device in zip(rng_paths, meta["devices"]):
         cuda = "export CUDA_VISIBLE_DEVICES=" + str(device)
         sesh_name = "{}{}".format(exp_name[:4],device)
-        command = "{} \"{}\" \'{}; {} {} {}\'".format(
+        timestamp = str(datetime.now()).replace(" ", "_")
+        timestamp = timestamp.split(".")[0].replace(":",".")
+        fname = sesh_name+"_"+timestamp+".txt"
+        log_file = os.path.join(stdout_folder, fname)
+        command = "{} \"{}\" \'{}; {} {} {} >> {}\'".format(
             tmux_sesh,
             sesh_name,
             cuda,
             exe,
             meta["hyperparams"],
-            rng_path
+            rng_path,
+            log_file
         )
         print(command)
         os.system(command)
