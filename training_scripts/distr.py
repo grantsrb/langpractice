@@ -13,6 +13,15 @@ The meta ranges should have the following structure within a .json:
     "hyperparams": "path/to/hyperparams.json",
     "hyperranges": "path/to/hyperranges.json"
 }
+
+or
+
+{
+    "devices": [0,1,2],
+    "split_keys": ["use_count_words"],
+    "hyperparams": "path/to/hyperparams.json",
+    "hyperranges": "path/to/hyperranges.json"
+}
 """
 import sys
 import os
@@ -28,10 +37,10 @@ def distr_ranges(script, meta, rng_paths):
     exe = "python3 {}".format(script)
     for rng_path, device in zip(rng_paths, meta["devices"]):
         cuda = "export CUDA_VISIBLE_DEVICES=" + str(device)
-        command = "{} \"{}{}\" \'{}; {} {} {}\'".format(
+        sesh_name = "{}{}".format(exp_name[:4],device)
+        command = "{} \"{}\" \'{}; {} {} {}\'".format(
             tmux_sesh,
-            exp_name,
-            device,
+            sesh_name,
             cuda,
             exe,
             meta["hyperparams"],
