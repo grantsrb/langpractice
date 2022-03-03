@@ -46,14 +46,13 @@ def distr_ranges(script, meta, rng_paths):
         timestamp = timestamp.split(".")[0].replace(":",".")
         fname = sesh_name+"_"+timestamp+".txt"
         log_file = os.path.join(stdout_folder, fname)
-        command = "{} \"{}\" \'{}; {} {} {} >> {}\'".format(
+        command = "{} \"{}\" \'{}; {} {} {}\'".format(
             tmux_sesh,
             sesh_name,
             cuda,
             exe,
             meta["hyperparams"],
-            rng_path,
-            log_file
+            rng_path
         )
         print(command)
         os.system(command)
