@@ -102,6 +102,7 @@ class ExperienceReplay(torch.utils.data.Dataset):
         self.inpt_shape = self.hyps["inpt_shape"]
         self.seq_len = self.hyps["seq_len"]
         self.randomize_order = self.hyps["randomize_order"]
+        self.roll_data = try_key(self.hyps, "roll_data", True)
         self.share_tensors = share_tensors
         assert self.exp_len > self.seq_len,\
             "sequence length must be less than total experience length"
@@ -152,7 +153,10 @@ class ExperienceReplay(torch.utils.data.Dataset):
         }
 
     def __len__(self):
-        return len(self.shared_exp["rews"][0]) - self.seq_len
+        raw_len = len(self.shared_exp["rews"][0]) - self.seq_len
+        if self.roll_data:
+            return raw_len
+        return int(raw_len//self.seq_len)
 
     def __getitem__(self, idx):
         """
@@ -161,6 +165,8 @@ class ExperienceReplay(torch.utils.data.Dataset):
 
         Args:
             idx: int
+                this value is multiplied by the sequence length if
+                roll_data is false
         Returns:
             data: dict
                 keys: str
@@ -169,6 +175,8 @@ class ExperienceReplay(torch.utils.data.Dataset):
                     dones: torch long tensor (N, S)
                     actns: torch long tensor (N, S)
         """
+        if not self.roll_data:
+            idx = idx*self.seq_len
         data = dict()
         for key in self.exp.keys():
             data[key] = self.exp[key][:, idx: idx+self.seq_len]
@@ -206,7 +214,7 @@ class ExperienceReplay(torch.utils.data.Dataset):
         if not hasattr(self, "idx_order"):
             self.__iter__()
         if self.idx < self.__len__():
-            idx = self.idx
+            idx = self.idx_order[self.idx]
             self.idx += 1
             return self.__getitem__(idx)
         else:
@@ -216,11 +224,18 @@ class ExperienceReplay(torch.utils.data.Dataset):
     def get_drops(hyps, grabs, disp_targs):
         """
         Returns a tensor denoting steps in which the agent dropped an
-        item. WARNING: this tensor has been bastardized to simply denote
+        item. This always means that the player is still on the item
+        when the prediction happens.
+        
+        WARNING: this tensor has been bastardized to simply denote
         when the agent should make a language prediction about n_items.
+
         The tensor returned is also actually a LongTensor, not a Bool
         Tensor. Assumes 1 means PILE, and 2 means BUTTON and 3 means
         ITEM within the grabs tensor.
+
+        For variants 4 and 7, drops includes any frame in which the
+        targets are displayed.
 
         Args:
             hyps: dict
@@ -254,16 +269,24 @@ class ExperienceReplay(torch.utils.data.Dataset):
         if len(grabs.shape)==2:
             drops[:, 1:] = drops[:, :-1] - drops[:, 1:]
             drops[:,0] = 0
+            drops = torch.roll(drops, 1, -1)
+            drops[:,0] = 0
         elif len(grabs.shape)==1:
             drops[1:] = drops[:-1] - drops[1:]
+            drops[0] = 0
+            drops = torch.roll(drops, 1, -1)
             drops[0] = 0
         drops[drops!=1] = 0
         drops[drops>0] = 1
         # In case less than 5% of the batch are drops, we set the last
         # column to 1
-        perc_threshold = 0.05
-        if drops.sum()<=(perc_threshold*len(drops)):
-            drops[..., -1:] = 1
+        perc_threshold = try_key(hyps,"drops_perc_threshold",0)
+        if drops.sum()<=(perc_threshold*drops.numel()):
+            if perc_threshold == 0: perc_threshold = 0.1
+            rand = torch.rand_like(drops.float())
+            rand[rand<=perc_threshold] = 1
+            rand[rand!=1] = 0
+            drops = drops | rand.long()
         return drops
 
 class DataCollector:
@@ -522,7 +545,7 @@ class Runner:
         used to indicate to the main process that a new rollout has
         been collected.
         """
-        self.phase = 0
+        self.phase = try_key(self.hyps, "first_phase", 0)
         self.model = model
         if model is None:
             self.model = NullModel(**self.hyps)
@@ -903,7 +926,8 @@ class ValidationRunner(Runner):
             if self.hyps["render"]: self.env.render()
             ep_count += int(done)
         self.state_bookmark = state
-        self.h_bookmark = (model.h.data, model.c.data)
+        if hasattr(model, "h"):
+            self.h_bookmark = (model.h.data, model.c.data)
         # S stands for the collected sequence
         data["actn_preds"] = torch.cat(data["actn_preds"], dim=0) #(S,A)
         data["lang_preds"] = torch.cat(data["lang_preds"], dim=1) #(N,S,L)

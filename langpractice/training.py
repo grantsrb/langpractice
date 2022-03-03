@@ -56,6 +56,8 @@ def train(rank, hyps, verbose=True):
         print("Sharing model with runners")
     else:
         data_collector.init_runner_procs(None)
+    # Set initial phase
+    data_collector.update_phase(try_key(hyps, "first_phase", 0))
     data_collector.dispatch_runners()
     # Record experiment settings
     recorder = Recorder(hyps, model)
@@ -63,7 +65,11 @@ def train(rank, hyps, verbose=True):
     data_collector.init_validator_proc(shared_model)
     # initialize trainer
     trainer = Trainer(hyps, model, recorder, verbose=verbose)
-    if not try_key(hyps,"skip_first_phase",False) and trainer.phase == 0:
+    if not try_key(hyps,"skip_first_phase",False)\
+            and trainer.phase == try_key(hyps, "first_phase", 0):
+        s = "\n\nBeginning First Phase " + str(trainer.phase)
+        recorder.write_to_log(s)
+        print(s)
         # Loop training
         exp_name = hyps["exp_name"]
         n_epochs = hyps["lang_epochs"] if exp_name != "test" else 2
@@ -193,6 +199,10 @@ def training_loop(n_epochs,
         if epoch > start_epoch:
             if verbose:
                 print("\nAwaiting validator for epoch", epoch-1)
+                if type(model) == TestModel:
+                    print("Len data strings dict:", len(model.data_strings))
+                    for k,v in model.data_strings.items():
+                        print("v:", v)
             data_collector.await_validator()
         shared_model.load_state_dict(model.state_dict())
         if verbose:
@@ -257,11 +267,15 @@ class Trainer:
         lang_checkpt = try_key(self.hyps, "lang_checkpt", None)
         if folder is not None and folder != "":
             checkpt = load_checkpoint(folder)
-            return try_key(checkpt, "phase", 0)
+            return try_key(
+                checkpt,
+                "phase",
+                try_key(self.hyps,"first_phase",0)
+            )
         # Skip first phase if init from lang_checkpt
         elif lang_checkpt is not None and lang_checkpt.strip()!="":
             return self.hyps["second_phase"]
-        return 0
+        return try_key(self.hyps, "first_phase", 0)
 
     def set_optimizer_and_scheduler(self,
                                     model,
@@ -328,8 +342,10 @@ class Trainer:
         """
         if self.hyps["randomize_order"]:
             model.reset(batch_size=batch_size)
+        elif try_key(self.hyps, "roll_data", True):
+            model.reset_to_step(step=0)
         else:
-            model.reset_to_step(step=1)
+            model.reset_to_step(step=-1)
 
     def train(self, model, data_iter, epoch):
         """
@@ -362,9 +378,16 @@ class Trainer:
             n_items = data["n_items"]
             n_targs = data["n_targs"]
 
-            ## Testing
-            ##############
-            #if i == 0:
+            labels = get_lang_labels(
+                n_items,
+                n_targs,
+                max_label=model.lang_size-1,
+                use_count_words=self.hyps["use_count_words"]
+            )
+
+            # Testing
+            #############
+            #if (i == 2 or i==1) and self.hyps["exp_name"]=="test":
             #    grabs = data["grabs"]
             #    print("train grabs:")
             #    for row in range(len(drops)):
@@ -375,25 +398,39 @@ class Trainer:
             #    print("train drops:")
             #    for row in range(len(drops)):
             #        print(drops[row].cpu().numpy())
+            #    print("lang labels:")
+            #    for row in range(len(drops)):
+            #        print(labels[row].cpu().numpy())
+            #    print("train actns:")
+            #    for row in range(len(drops)):
+            #        print(actns[row].cpu().numpy())
 
+            #    print("Starting new loop")
             #    for row in range(len(obs)):
-            #        for _,o in enumerate(obs[row].detach().cpu().numpy()):
+            #        print("row:",row)
+            #        for ii,o in enumerate(obs[row].detach().cpu().numpy()):
+            #            print("seq:", ii)
+            #            print("n_items:", n_items[row,ii].cpu().numpy())
+            #            print("drops:", drops[row,ii].cpu().numpy())
+            #            print("labels:", labels[row,ii].cpu().numpy())
+            #            print("actns:", actns[row,ii].cpu().numpy())
+            #            print()
             #            plt.imshow(o.transpose((1,2,0)).squeeze())
-            #            plt.savefig("imgs/epoch{}_row{}_samp{}.png".format(epoch, row, _))
+            #            plt.show()
+            #            #plt.savefig("imgs/epoch{}_row{}_samp{}.png".format(epoch, row, ii))
             #############
 
-            if drops.sum() == 0:
-                print("No drops in loop", i, "... continuing")
-                continue
-            labels = get_lang_labels(
-                n_items,
-                n_targs,
-                max_label=model.lang_size-1,
-                use_count_words=self.hyps["use_count_words"]
-            )
-
+            # Resets to h value to appropriate step of last loop
             self.reset_model(model, len(obs))
             # model uses dones if it is recurrent
+            if drops.sum() == 0:
+                print("No drops in loop", i, "... continuing")
+                with torch.no_grad():
+                    logits, langs = model(
+                        obs.to(DEVICE),
+                        dones.to(DEVICE)
+                    )
+                continue
             logits, langs = model(
                 obs.to(DEVICE),
                 dones.to(DEVICE)
@@ -448,18 +485,18 @@ class Trainer:
             Phase 2: lang and action loss at all steps in rollout
 
         Args:
-            logits: torch FloatTensor (..., A)
+            logits: torch FloatTensor (B,S,A)
                 action predictions
-            langs: sequence of torch FloatTensors [(N, L),(N, L),...]
+            langs: sequence of torch FloatTensors [(B,S,L),(B,S,L),...]
                 a list of language predictions
-            actns: torch LongTensor (N,)
+            actns: torch LongTensor (B*S,)
                 action labels
-            labels: torch LongTensor (N,)
+            labels: torch LongTensor (B*S,)
                 language labels
-            drops: torch LongTensor (N,)
+            drops: torch LongTensor (B*S,)
                 1s denote steps in which the agent dropped an item, 0s
                 denote all other steps
-            n_targs: torch LongTensor (N,)
+            n_targs: torch LongTensor (B*S,)
                 the number of target objects on the grid at this step
                 of the episode
         Returns:
