@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from langpractice.utils.torch_modules import Flatten, Reshape, GaussianNoise
 from langpractice.utils.utils import update_shape
+import matplotlib.pyplot as plt
 # update_shape(shape, kernel=3, padding=0, stride=1, op="conv"):
 
 class Model(torch.nn.Module):
@@ -133,7 +134,7 @@ class Model(torch.nn.Module):
 
         Args:
             step: int
-                the index + 1 of the step to revert the recurrence to
+                the index of the step to revert the recurrence to
         """
         pass
 
@@ -196,6 +197,63 @@ class NullModel(Model):
             actn = actn.cuda()
             lang = lang.cuda()
         return actn, (lang,)
+
+class TestModel(Model):
+    """
+    This model collects the data argued to the model so as to ensure
+    the inputs are exactly as expected for testing purposes.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # each observation is turned into a string and stored inside
+        # this variable
+        self.data_strings = dict()
+
+    def forward(self, x, *args, **kwargs):
+        """
+        Args:
+            x: torch Float Tensor (B, S, C, H, W) or (B,C,H,W)
+        Returns:
+            actn: torch FloatTensor (B, S, A) or (B, A)
+            lang: tuple of torch FloatTensors (B, S, L) or (B, L)
+        """
+        temp = x.reshape(x.shape[0], x.shape[1], -1)
+        for i,xxx in enumerate(temp):
+            for j,xx in enumerate(xxx):
+                s = str(xx)
+                if s in self.data_strings:
+                    self.data_strings[s].add(i)
+                    o = xx.cpu().detach().data.numpy().reshape(x.shape[2:])
+                    plt.imshow(o.transpose((1,2,0)).squeeze())
+                    plt.savefig("imgs/row{}_samp{}.png".format(i,j))
+                else:
+                    self.data_strings[s] = {i}
+
+        if len(x.shape) == 4:
+            return self.step(x)
+        else:
+            # Action
+            actn = torch.ones(*x.shape[:2], self.actn_size, requires_grad=True).float()
+            # Language
+            lang = torch.ones(*x.shape[:2], self.lang_size, requires_grad=True).float()
+            if x.is_cuda:
+                actn = actn.cuda()
+                lang = lang.cuda()
+            return actn*x.sum(), (lang*x.sum(),)
+
+    def step(self, x):
+        """
+        Args:
+            x: torch Float Tensor (B, C, H, W)
+        """
+        x = x.reshape(len(x), -1)
+        actn = torch.ones((x.shape[0], self.actn_size), requires_grad=True).float()
+        lang = torch.ones((x.shape[0], self.lang_size), requires_grad=True).float()
+        if x.is_cuda:
+            actn = actn.cuda()
+            lang = lang.cuda()
+        return actn*x.sum(), (lang*x.sum(),)
+
 
 class RandomModel(Model):
     def __init__(self, *args, **kwargs):
@@ -487,19 +545,20 @@ class SimpleLSTM(Model):
         c = self.c*mask
         return h,c
 
-    def reset_to_step(self, step=1):
+    def reset_to_step(self, step=0):
         """
         This function resets all recurrent states in a model to the
-        recurrent state that occurred after the first step in the last
-        call to forward.
+        previous recurrent state just after the argued step. So, the
+        model takes the 0th step then the 0th h and c vectors are the
+        h and c vectors just after the model took this step.
 
         Args:
             step: int
-                the index + 1 of the step to revert the recurrence to
+                the index of the step to revert the recurrence to
         """
-        assert (step-1) < len(self.prev_hs) and (step-1) >= 0, "invalid step"
-        self.h = self.prev_hs[step-1].detach().data
-        self.c = self.prev_cs[step-1].detach().data
+        assert step < len(self.prev_hs), "invalid step"
+        self.h = self.prev_hs[step].detach().data
+        self.c = self.prev_cs[step].detach().data
         if self.is_cuda:
             self.h.to(self.get_device())
             self.c.to(self.get_device())

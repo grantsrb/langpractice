@@ -121,11 +121,17 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         if true, the training will skip phase 0 and go straight to
         phase 1 or 2 (depending on the value of `second_phase`).
         Defaults to false.
-    "second_phase": int (1 or 2)
-        this determines if the model will be trained with language
-        during the second phase of the training. If 1, the model is
-        trained with actions only, if 2, the model is trained with
-        both language and actions during the second phase.
+    "first_phase": int (0, 1 or 2)
+        this determines if the model will be trained with language,
+        actions, or both during the first phase of the training.
+        0 means language only. 1 means the model is trained with actions
+        only. 2 means the model is trained with both language and
+        actions.
+    "second_phase": int (0, 1 or 2)
+        this determines if the model will be trained with language,
+        actions, or both during the second phase of the training.
+        0 means language only. 1 means actions only. 2 means both
+        language and actions.
 
     "model_type": str
         the name of the model class that you wish to use for the
@@ -167,6 +173,9 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         if true, language predictions only occur when the agent drops
         an object. Otherwise the language predictions occur at every
         step.
+    "drop_prec_threshold": float
+        if 0 no effect. Otherwise the drops array will randomly add
+        ones so that the language training signal is increased.
 
     "env_type": str
         the name of the gym environment to be used for the training
@@ -212,6 +221,14 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         if true, the training environments are reset at the beginning
         of each collection. This ensures that the model never has to
         jump into the middle of an episode during training.
+    "roll_data": bool
+        if true, training data is fed in such that the next training
+        loop is only one time step in the future from the first step
+        in the last loop (so seq_len-1 steps overlap with the previous
+        loop). Otherwise training data is fed in such that
+        the first data point in the current training loop is 1 time
+        step after the last time step in the last loop (so there is
+        no data overlap).
 
     "val_targ_range": list of ints (low, high) or None
         the range of target counts during the validation phase. both

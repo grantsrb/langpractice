@@ -281,6 +281,8 @@ def get_lang_labels(n_items, n_targs, max_label, use_count_words):
         max_label: int
             the maximum allowed language label. can usually use
             model.lang_size-1
+    Returns:
+        labels: torch Tensor (N,)
     """
     labels = n_items.clone()
     labels[labels>max_label] = max_label
