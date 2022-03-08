@@ -321,7 +321,7 @@ class DataCollector:
         self.val_gate_q = mp.Queue(1)
         self.val_stop_q = mp.Queue(1)
         self.phase_q = mp.Queue(1)
-        self.phase_q.put(0)
+        self.phase_q.put(try_key(hyps, "first_phase", 0))
         # Get observation, actn, and lang shapes
         self.validator = ValidationRunner(
             self.hyps,
@@ -511,12 +511,13 @@ class Runner:
         of the experiment. Phase 0 means language, anything else means
         action.
         """
+        # Set defaults
+        if try_key(self.hyps, "actn_range", None) is None:
+            self.hyps["actn_range"] = self.hyps["targ_range"]
+        if try_key(self.hyps, "lang_range", None) is None:
+            self.hyps["lang_range"] = self.hyps["targ_range"]
+
         if self.phase == 0:
-            # Set defaults
-            if try_key(self.hyps, "actn_range", None) is None:
-                self.hyps["actn_range"] = self.hyps["targ_range"]
-            if try_key(self.hyps, "lang_range", None) is None:
-                self.hyps["lang_range"] = self.hyps["targ_range"]
             # Set environment targ range to language range
             self.hyps["targ_range"] = self.hyps["lang_range"]
         else:
