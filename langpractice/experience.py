@@ -252,7 +252,7 @@ class ExperienceReplay(torch.utils.data.Dataset):
                 a tensor denoting if the agent dropped an item with a 1,
                 0 otherwise. See WARNING in description
         """
-        env_types = {"gordongames-v4", "gordongames-v7"}
+        env_types = {"gordongames-v4", "gordongames-v7", "gordongames-v8"}
         if type(grabs) == type(np.asarray([])):
             grabs = torch.from_numpy(grabs).long()
         if not try_key(hyps, "lang_on_drops_only", True):

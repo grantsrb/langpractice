@@ -387,37 +387,37 @@ class Trainer:
 
             # Testing
             #############
-            #if (i == 2 or i==1) and self.hyps["exp_name"]=="test":
-            #    grabs = data["grabs"]
-            #    print("train grabs:")
-            #    for row in range(len(drops)):
-            #        print(grabs[row].cpu().numpy())
-            #    print("train n_items:")
-            #    for row in range(len(drops)):
-            #        print(n_items[row].cpu().numpy())
-            #    print("train drops:")
-            #    for row in range(len(drops)):
-            #        print(drops[row].cpu().numpy())
-            #    print("lang labels:")
-            #    for row in range(len(drops)):
-            #        print(labels[row].cpu().numpy())
-            #    print("train actns:")
-            #    for row in range(len(drops)):
-            #        print(actns[row].cpu().numpy())
+            if (i == 2 or i==1) and self.hyps["exp_name"]=="test":
+                grabs = data["grabs"]
+                print("train grabs:")
+                for row in range(len(drops)):
+                    print(grabs[row].cpu().numpy())
+                print("train n_items:")
+                for row in range(len(drops)):
+                    print(n_items[row].cpu().numpy())
+                print("train drops:")
+                for row in range(len(drops)):
+                    print(drops[row].cpu().numpy())
+                print("lang labels:")
+                for row in range(len(drops)):
+                    print(labels[row].cpu().numpy())
+                print("train actns:")
+                for row in range(len(drops)):
+                    print(actns[row].cpu().numpy())
 
-            #    print("Starting new loop")
-            #    for row in range(len(obs)):
-            #        print("row:",row)
-            #        for ii,o in enumerate(obs[row].detach().cpu().numpy()):
-            #            print("seq:", ii)
-            #            print("n_items:", n_items[row,ii].cpu().numpy())
-            #            print("drops:", drops[row,ii].cpu().numpy())
-            #            print("labels:", labels[row,ii].cpu().numpy())
-            #            print("actns:", actns[row,ii].cpu().numpy())
-            #            print()
-            #            plt.imshow(o.transpose((1,2,0)).squeeze())
-            #            plt.show()
-            #            #plt.savefig("imgs/epoch{}_row{}_samp{}.png".format(epoch, row, ii))
+                print("Starting new loop")
+                for row in range(len(obs)):
+                    print("row:",row)
+                    for ii,o in enumerate(obs[row].detach().cpu().numpy()):
+                        print("seq:", ii)
+                        print("n_items:", n_items[row,ii].cpu().numpy())
+                        print("drops:", drops[row,ii].cpu().numpy())
+                        print("labels:", labels[row,ii].cpu().numpy())
+                        print("actns:", actns[row,ii].cpu().numpy())
+                        print()
+                        plt.imshow(o.transpose((1,2,0)).squeeze())
+                        plt.show()
+                        #plt.savefig("imgs/epoch{}_row{}_samp{}.png".format(epoch, row, ii))
             #############
 
             # Resets to h value to appropriate step of last loop
