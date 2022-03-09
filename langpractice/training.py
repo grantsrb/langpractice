@@ -387,7 +387,7 @@ class Trainer:
 
             # Testing
             #############
-            if (i == 2 or i==1) and self.hyps["exp_name"]=="test":
+            if (i == 2 or i==1 or i==0) and self.hyps["exp_name"]=="test":
                 grabs = data["grabs"]
                 print("train grabs:")
                 for row in range(len(drops)):
