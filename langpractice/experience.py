@@ -261,7 +261,8 @@ class ExperienceReplay(torch.utils.data.Dataset):
 
         if hyps["env_type"] in env_types:
             drops[drops>0] = 1
-            drops = drops | disp_targs
+            if try_key(hyps, "count_targs", True):
+                drops = drops | disp_targs
             return drops
         drops[grabs!=3] = 0
         drops[grabs==3] = 1
@@ -523,6 +524,7 @@ class Runner:
         else:
             # Set environment targ range to action range
             self.hyps["targ_range"] = self.hyps["actn_range"]
+        self.hyps["seed"] += int(np.random.random()*100000)
         hyps = {**self.hyps}
         if n_targs is not None:
             hyps["targ_range"] =  (n_targs, n_targs)
@@ -538,6 +540,10 @@ class Runner:
         self.h_bookmark = None
         return state
 
+    def set_random_seed(self, seed):
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
     def run(self, model=None):
         """
         run is the entry function to begin collecting rollouts from the
@@ -546,6 +552,7 @@ class Runner:
         used to indicate to the main process that a new rollout has
         been collected.
         """
+        self.set_random_seed(self.hyps["seed"])
         self.phase = try_key(self.hyps, "first_phase", 0)
         self.model = model
         if model is None:
@@ -668,6 +675,7 @@ class ValidationRunner(Runner):
                 the initial phase
         """
         self.hyps = {**hyps}
+        self.seed = self.hyps["seed"]
         self.gate_q = gate_q
         self.stop_q = stop_q
         self.phase_q = phase_q
@@ -702,6 +710,7 @@ class ValidationRunner(Runner):
             self.hyps["targ_range"][0],
             self.hyps["targ_range"][1]+1
         )
+        self.hyps["seed"] = self.seed
         for n_targs in rng:
             state = self.create_new_env(n_targs=n_targs)
             model.reset(1)
