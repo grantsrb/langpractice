@@ -127,7 +127,8 @@ class ExperienceReplay(torch.utils.data.Dataset):
                 )).long(),
         }
         self.info_keys = [
-            "n_targs","n_items","n_aligned","grabs","disp_targs"
+            "n_targs","n_items","n_aligned","grabs","disp_targs",
+            "is_animating",
         ]
         for key in self.info_keys:
             self.shared_exp[key] = torch.zeros((
@@ -627,6 +628,7 @@ class Runner:
             self.shared_exp["n_aligned"][idx,i] = info["n_aligned"]
             self.shared_exp["grabs"][idx,i] = int(info["grab"])
             self.shared_exp["disp_targs"][idx,i] = int(info["disp_targs"])
+            self.shared_exp["is_animating"][idx,i] = int(info["is_animating"])
 
             state = next_state(
                 self.env,
@@ -760,6 +762,8 @@ class ValidationRunner(Runner):
                     this step of the episode
                 dones: torch LongTensor (N,)
                     1 if episode ended on this step, 0 otherwise
+                is_animating: torch LongTensor (N,)
+                    1 if step is animation step
             epoch: int
             phase: int
             save_name: str
@@ -770,7 +774,8 @@ class ValidationRunner(Runner):
             "n_aligned":None,
             "pred":None,
             "label":None,
-            "done":None
+            "done":None,
+            "is_animating":None,
         }
         idxs = drops>=1
         if idxs.float().sum() <= 1: return
@@ -782,6 +787,7 @@ class ValidationRunner(Runner):
         inpts["n_items"] = data["n_items"][idxs]
         inpts["n_aligned"] = data["n_aligned"][idxs]
         inpts["done"] = data["dones"][idxs]
+        inpts["is_animating"] = data["is_animating"][idxs]
         inpts = {k:v.cpu().data.numpy() for k,v in inpts.items()}
 
         df = pd.DataFrame(inpts)
@@ -887,6 +893,7 @@ class ValidationRunner(Runner):
             "n_aligned":[],
             "grabs":[],
             "disp_targs":[],
+            "is_animating":[],
         }
         ep_count = 0
         n_eps = try_key(self.hyps,"n_eval_eps",10)
@@ -933,6 +940,7 @@ class ValidationRunner(Runner):
             data["n_aligned"].append(info["n_aligned"])
             data["grabs"].append(info["grab"])
             data["disp_targs"].append(info["disp_targs"])
+            data["is_animating"].append(info["is_animating"])
             if self.hyps["render"]: self.env.render()
             ep_count += int(done)
         self.state_bookmark = state
@@ -949,5 +957,6 @@ class ValidationRunner(Runner):
         data["n_items"] = torch.LongTensor(data["n_items"])
         data["n_aligned"] = torch.LongTensor(data["n_aligned"])
         data["disp_targs"] = torch.LongTensor(data["disp_targs"])
+        data["is_animating"] = torch.LongTensor(data["is_animating"])
         return data
 
