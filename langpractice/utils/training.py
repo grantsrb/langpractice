@@ -215,8 +215,7 @@ def record_session(hyps, model):
     for k in keys:
         if type(hyps[k]) == type(np.array([])):
             del temp_hyps[k]
-    with open(os.path.join(sf,h+".json"),'w') as f:
-        json.dump(temp_hyps, f)
+    utils.save_json(temp_hyps, os.path.join(sf,h+".json"))
 
 def fill_hyper_q(hyps, hyp_ranges, keys, hyper_q, idx=0):
     """

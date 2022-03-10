@@ -2,7 +2,7 @@ from langpractice.experience import DataCollector
 from langpractice.models import * # SimpleCNN, SimpleLSTM
 from langpractice.recorders import Recorder
 from langpractice.utils.save_io import load_checkpoint
-from langpractice.utils.utils import try_key, get_lang_labels
+from langpractice.utils.utils import try_key, get_lang_labels, get_loss_and_accs
 from langpractice.utils.training import get_resume_checkpt
 
 from torch.optim import Adam, RMSprop
@@ -436,7 +436,10 @@ class Trainer:
                 dones.to(DEVICE)
             )
 
-            loss,accs = self.get_loss_and_accs(
+            loss,accs = get_loss_and_accs(
+                hyps=self.hyps,
+                phase=self.phase,
+                loss_fxn=self.loss_fxn,
                 logits=logits,
                 langs=langs,
                 actns=actns.flatten(),
@@ -467,178 +470,6 @@ class Trainer:
         self.scheduler.step(
             np.mean(self.recorder.metrics[key])
         )
-
-    def get_loss_and_accs(self,
-                          logits,
-                          langs,
-                          actns,
-                          labels,
-                          drops,
-                          n_targs,
-                          prepender):
-        """
-        Calculates the loss and accuracies depending on the phase of
-        the training.
-
-            Phase 0: language loss when agent drops an item
-            Phase 1: action loss at all steps in rollout
-            Phase 2: lang and action loss at all steps in rollout
-
-        Args:
-            logits: torch FloatTensor (B,S,A)
-                action predictions
-            langs: sequence of torch FloatTensors [(B,S,L),(B,S,L),...]
-                a list of language predictions
-            actns: torch LongTensor (B*S,)
-                action labels
-            labels: torch LongTensor (B*S,)
-                language labels
-            drops: torch LongTensor (B*S,)
-                1s denote steps in which the agent dropped an item, 0s
-                denote all other steps
-            n_targs: torch LongTensor (B*S,)
-                the number of target objects on the grid at this step
-                of the episode
-        Returns:
-            loss: torch float tensor (1,)
-                the appropriate loss for the phase
-            accs: dict
-                keys: str
-                vals: float
-                    the appropriate label accuracies depending on the
-                    phase
-        """
-        logits = logits.reshape(-1, logits.shape[-1])
-        # Phase 0: language labels when agent drops an item
-        # Phase 1: action labels at all steps in rollout
-        # Phase 2: lang and action labels at all steps in rollout
-        loss = 0
-        lang_accs = {}
-        if self.phase == 0 or self.phase == 2:
-            accs_array = []
-            idxs = drops==1
-            labels = labels[idxs]
-            categories = labels
-            labels = labels.to(DEVICE)
-            for lang in langs:
-                lang = lang.reshape(-1, lang.shape[-1])
-                lang = lang[idxs]
-                if len(lang)==0:
-                    print("lang:", lang)
-                    print("drops:", drops)
-                    continue
-                loss += self.loss_fxn(lang, labels)
-                with torch.no_grad():
-                    accs = self.calc_accs( # accs is a dict of floats
-                        logits=lang,
-                        targs=labels,
-                        categories=categories,
-                        prepender=prepender+"_lang"
-                    )
-                    accs_array.append(accs)
-            lang_accs = Trainer.avg_over_accs_array(accs_array)
-        actn_accs = {}
-        if self.phase == 1 or self.phase == 2:
-            actns = actns.to(DEVICE)
-            p = self.hyps["lang_p"] if self.phase == 2 else 0
-            loss = p*loss + (1-p)*self.loss_fxn(logits, actns)
-            with torch.no_grad():
-                actn_accs = self.calc_accs( # accs is a dict of floats
-                    logits=logits,
-                    targs=actns,
-                    categories=n_targs,
-                    prepender=prepender+"_actn"
-                )
-        return loss, {**actn_accs, **lang_accs}
-
-    @staticmethod
-    def avg_over_accs_array(accs_array):
-        """
-        This is a helper function to average over the keys in an array
-        of dicts. The result is a dict with the same keys as every
-        dict in the argued array, but the values are averaged over each
-        dict within the argued array.
-
-        Args:
-            accs_array: list of dicts
-                this is a list of dicts. Each dict must consist of str
-                keys and float or int vals. Each dict must have the
-                same set of keys.
-        Returns:
-            avgs: dict
-                keys: str
-                    same keys as all dicts in accs_array
-                vals: float
-                    the average over all dicts in the accs array for
-                    the corresponding key
-        """
-        if len(accs_array) == 0: return dict()
-        avgs = {k: 0 for k in accs_array[0].keys()}
-        for k in avgs.keys():
-            avg = 0
-            for i in range(len(accs_array)):
-                avg += accs_array[i][k]
-            avgs[k] = avg/len(accs_array)
-        return avgs
-
-    def calc_accs(self, logits, targs, categories=None, prepender=""):
-        """
-        Calculates the average accuracy over the batch for each possible
-        category
-
-        Args:
-            logits: torch float tensor (B, N, K)
-                the model predictions. the last dimension must be the
-                same number of dimensions as possible target values.
-            targs: torch long tensor (B, N)
-                the targets for the predictions
-            categories: torch long tensor (B, N) or None
-                if None, this value is ignored. Otherwise it specifies
-                categories for accuracy calculations.
-            prepender: str
-                a string to prepend to all keys in the accs dict
-        Returns:
-            accs: dict
-                keys: str
-                    total: float
-                        the average accuracy over all categories
-                    <categories_type_n>: float
-                        the average accuracy over this particular
-                        category. for example, if one of the categories
-                        is named 1, the key will be "1" and the value
-                        will be the average accuracy over that
-                        particular category.
-        """
-        logits = logits.reshape(-1, logits.shape[-1])
-        try:
-            argmaxes = torch.argmax(logits, dim=-1).reshape(-1)
-        except:
-            print("logits:", logits)
-            return { prepender + "_acc": 0 }
-        targs = targs.reshape(-1)
-        acc = (argmaxes.long()==targs.long()).float().mean()
-        accs = {
-            prepender + "_acc": acc.item()
-        }
-        if len(argmaxes) == 0: return accs
-        if type(categories) == torch.Tensor: # (B, N)
-            categories = categories.reshape(-1).data.long()
-            cats = {*categories.numpy()}
-            for cat in cats:
-                idxs = categories==cat
-                if idxs.float().sum() <= 0: continue
-                try:
-                    argmxs = argmaxes[idxs]
-                except:
-                    print("logits:", logits.shape)
-                    print("argmaxes:", argmaxes.shape)
-                    print("categs:", categories.shape)
-                    print("idxs sum:", idxs.float().sum())
-                    assert False
-                trgs = targs[idxs]
-                acc = (argmxs.long()==trgs.long()).float().mean()
-                accs[prepender+"_acc_"+str(cat)] = acc.item()
-        return accs
 
     def print_loop(self,
                    loop_count,
