@@ -437,7 +437,6 @@ class Trainer:
             )
 
             loss,accs = get_loss_and_accs(
-                hyps=self.hyps,
                 phase=self.phase,
                 loss_fxn=self.loss_fxn,
                 logits=logits,
@@ -446,7 +445,8 @@ class Trainer:
                 labels=labels.flatten(),
                 drops=drops.flatten(),
                 n_targs=n_targs.flatten(),
-                prepender="train"
+                prepender="train",
+                lang_p=self.hyps["lang_p"]
             )
             # Backprop and update
             loss.backward()

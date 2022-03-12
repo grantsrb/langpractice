@@ -504,6 +504,7 @@ class Runner:
         self.obs_deque = deque(maxlen=hyps['n_frame_stack'])
         env_type = self.hyps['env_type']
         self.oracle = globals()[self.hyps["oracle_type"]](env_type)
+        self.rand = np.random.default_rng(self.hyps["seed"])
 
     def create_new_env(self, n_targs=None):
         """
@@ -525,7 +526,7 @@ class Runner:
         else:
             # Set environment targ range to action range
             self.hyps["targ_range"] = self.hyps["actn_range"]
-        self.hyps["seed"] += int(np.random.random()*100000)
+        self.hyps["seed"] += int(self.rand.random()*100000)
         hyps = {**self.hyps}
         if n_targs is not None:
             hyps["targ_range"] =  (n_targs, n_targs)
@@ -542,8 +543,7 @@ class Runner:
         return state
 
     def set_random_seed(self, seed):
-        np.random.seed(seed)
-        torch.manual_seed(seed)
+        self.rand = np.random.default_rng(seed)
 
     def run(self, model=None):
         """
@@ -690,6 +690,7 @@ class ValidationRunner(Runner):
         self.phase = phase
         self.obs_deque = deque(maxlen=hyps['n_frame_stack'])
         self.oracle = globals()[self.hyps["oracle_type"]](**self.hyps)
+        self.rand = np.random.default_rng(self.hyps["seed"])
 
     def rollout(self, epoch, model, *args, **kwargs):
         """
@@ -713,6 +714,8 @@ class ValidationRunner(Runner):
             self.hyps["targ_range"][1]+1
         )
         self.hyps["seed"] = self.seed
+        avg_acc = 0
+        avg_loss = 0
         for n_targs in rng:
             state = self.create_new_env(n_targs=n_targs)
             model.reset(1)
@@ -733,6 +736,7 @@ class ValidationRunner(Runner):
                 data, lang_labels, drops, epoch, self.phase
             )
             self.save_ep_data(data, epoch, self.phase)
+
 
     def save_lang_data(self,
                        data,

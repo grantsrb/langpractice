@@ -304,8 +304,7 @@ def get_lang_labels(n_items, n_targs, max_label, use_count_words):
         labels = get_piraha_labels(labels, n_items)
     return labels
 
-def get_loss_and_accs(hyps,
-                      phase,
+def get_loss_and_accs(phase,
                       logits,
                       langs,
                       actns,
@@ -313,7 +312,8 @@ def get_loss_and_accs(hyps,
                       drops,
                       n_targs,
                       prepender,
-                      loss_fxn):
+                      loss_fxn,
+                      lang_p=0.5):
     """
     Calculates the loss and accuracies depending on the phase of
     the training.
@@ -323,7 +323,6 @@ def get_loss_and_accs(hyps,
         Phase 2: lang and action loss at all steps in rollout
 
     Args:
-        hyps: dict of hyperparameters
         phase: int - 0,1,or 2
             the phase of the training
         logits: torch FloatTensor (B,S,A)
@@ -343,6 +342,11 @@ def get_loss_and_accs(hyps,
         loss_fxn: torch Module
             the loss function to calculate the loss. i.e.
             torch.nn.CrossEntropyLoss()
+        prepender: str
+            a string to prepend to all keys in the accs dict
+        lang_p: float
+            the language portion of the loss. only a factor for phase
+            2 trainings
     Returns:
         loss: torch float tensor (1,)
             the appropriate loss for the phase
@@ -352,43 +356,109 @@ def get_loss_and_accs(hyps,
                 the appropriate label accuracies depending on the
                 phase
     """
-    logits = logits.reshape(-1, logits.shape[-1])
     # Phase 0: language labels when agent drops an item
     # Phase 1: action labels at all steps in rollout
     # Phase 2: lang and action labels at all steps in rollout
     loss = 0
     lang_accs = {}
     if phase == 0 or phase == 2:
-        accs_array = []
-        idxs = drops==1
-        categories = labels[idxs]
-        labels = categories.to(DEVICE)
-        for lang in langs:
-            lang = lang.reshape(-1, lang.shape[-1])
-            lang = lang[idxs]
-            loss += loss_fxn(lang, labels)
-            with torch.no_grad():
-                accs = calc_accs( # accs is a dict of floats
-                    logits=lang,
-                    targs=labels,
-                    categories=categories,
-                    prepender=prepender+"_lang"
-                )
-                accs_array.append(accs)
-        lang_accs = avg_over_dicts(accs_array)
+        loss, lang_accs = calc_lang_loss_and_accs(
+            langs,
+            labels,
+            drops,
+            loss_fxn,
+            prepender
+        )
     actn_accs = {}
     if phase == 1 or phase == 2:
-        actns = actns.to(DEVICE)
-        p = hyps["lang_p"] if phase == 2 else 0
-        loss = p*loss + (1-p)*loss_fxn(logits, actns)
-        with torch.no_grad():
-            actn_accs = calc_accs( # accs is a dict of floats
-                logits=logits,
-                targs=actns,
-                categories=n_targs,
-                prepender=prepender+"_actn"
-            )
+        actn_loss, actn_accs = calc_actn_loss_and_accs(
+            logits,
+            actns,
+            n_targs,
+            loss_fxn,
+            prepender
+        )
+        p = lang_p if phase == 2 else 0
+        loss = p*loss + (1-p)*actn_loss
     return loss, {**actn_accs, **lang_accs}
+
+def calc_actn_loss_and_accs(logits,actns,n_targs,loss_fxn,prepender):
+    """
+    Args:
+        logits: torch FloatTensor (B,S,A)
+            action predictions
+        actns: torch LongTensor (B*S,)
+            action labels
+        n_targs: torch LongTensor (B*S,)
+            the number of target objects on the grid at this step
+            of the episode
+        loss_fxn: torch Module
+            the loss function to calculate the loss. i.e.
+            torch.nn.CrossEntropyLoss()
+        prepender: str
+            a string to prepend to all keys in the accs dict
+    Returns:
+        loss: torch float tensor (1,)
+        accs: dict
+            keys: str
+                accuracy types
+            vals: float
+                accuracies
+    """
+    logits = logits.reshape(-1, logits.shape[-1])
+    actns = actns.to(DEVICE)
+    loss = loss_fxn(logits, actns)
+    with torch.no_grad():
+        actn_accs = calc_accs( # accs is a dict of floats
+            logits=logits,
+            targs=actns,
+            categories=n_targs,
+            prepender=prepender+"_actn"
+        )
+    return loss, actn_accs
+
+def calc_lang_loss_and_accs(langs,labels,drops,loss_fxn,prepender=""):
+    """
+    Args:
+        langs: sequence of torch FloatTensors [(B,S,L),(B,S,L),...]
+            a list of language predictions
+        labels: torch LongTensor (B*S,)
+            language labels
+        drops: torch LongTensor (B*S,)
+            1s denote steps in which the agent dropped an item, 0s
+            denote all other steps
+        loss_fxn: torch Module
+            the loss function to calculate the loss. i.e.
+            torch.nn.CrossEntropyLoss()
+        prepender: str
+            a string to prepend to all keys in the accs dict
+    Returns:
+        loss: torch float tensor (1,)
+        accs: dict
+            keys: str
+                accuracy types
+            vals: float
+                accuracies
+    """
+    accs_array = []
+    idxs = drops==1
+    categories = labels[idxs]
+    labels = categories.to(DEVICE)
+    loss = 0
+    for lang in langs:
+        lang = lang.reshape(-1, lang.shape[-1])
+        lang = lang[idxs]
+        loss += loss_fxn(lang, labels)
+        with torch.no_grad():
+            accs = calc_accs( # accs is a dict of floats
+                logits=lang,
+                targs=labels,
+                categories=categories,
+                prepender=prepender+"_lang"
+            )
+            accs_array.append(accs)
+    lang_accs = avg_over_dicts(accs_array)
+    return loss, lang_accs
 
 def avg_over_dicts(dicts_array):
     """
@@ -438,9 +508,9 @@ def calc_accs(logits, targs, categories=None, prepender=""):
     Returns:
         accs: dict
             keys: str
-                total: float
+                <prepender>_acc: float
                     the average accuracy over all categories
-                <categories_type_n>: float
+                <prepender>_acc_<category>: float
                     the average accuracy over this particular
                     category. for example, if one of the categories
                     is named 1, the key will be "1" and the value
