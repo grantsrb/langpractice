@@ -251,6 +251,11 @@ class ExperienceReplay(torch.utils.data.Dataset):
                 env_type: str
                 count_targs: bool
                 drops_perc_threshold: float
+                lang_loc_type: int
+                    if 0, does nothing. If 1, will only return drops
+                    where is_animating is true. This argument is
+                    overridden by lang_on_drops_only being false.
+                    count_targs is overridden by this argument.
             grabs: Long Tensor (B,N)
                 a tensor denoting the item grabbed by the agent at
                 each timestep. Assumes 1 means PILE, and 2 means BUTTON

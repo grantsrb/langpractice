@@ -185,6 +185,9 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         Only applies to v4, v7, and v8 variants of gordongames. if 0,
         effectively does nothing. If 1, the language labels will only
         be for the targets. No counting is performed on the items.
+        This argument is overridden by lang_on_drops_only being false.
+        count_targs is overridden by this argument. drop_perc_threshold
+        has no impact on this argument.
 
     "env_type": str
         the name of the gym environment to be used for the training
