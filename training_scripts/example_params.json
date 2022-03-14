@@ -31,9 +31,11 @@
     "feat_drop_p": 0.1,
     "drop_p": 0.35,
     "randomize_order": false,
+
     "lang_on_drops_only": true,
     "count_targs": true,
     "drops_perc_threshold": 0,
+    "lang_loc_type": 0,
 
     "env_type": "gordongames-v1",
     "harsh": true,

@@ -54,26 +54,30 @@ class ExperienceReplay(torch.utils.data.Dataset):
     ):
         """
         Args:
-            exp_len: int
-                the maximum length of the experience tensors
-            batch_size: int
-                the number of parallel environments
-            inpt_shape: tuple (C, H, W)
-                the shape of the observations. channels first,
-                then height and width
-            seq_len: int
-                the length of returned sequences
-            randomize_order: bool
-                a bool to determine if the data should be
-                randomized in the iter. if true, data returned
-                from this class's iterable will be in a
-                randomized order.
+            hyps: dict
+                exp_len: int
+                    the maximum length of the experience tensors
+                batch_size: int
+                    the number of parallel environments
+                inpt_shape: tuple (C, H, W)
+                    the shape of the observations. channels first,
+                    then height and width
+                seq_len: int
+                    the length of returned sequences
+                randomize_order: bool
+                    a bool to determine if the data should be
+                    randomized in the iter. if true, data returned
+                    from this class's iterable will be in a
+                    randomized order.
+                share_tensors: bool
+                    if true, each tensor within shared_exp is moved to the
+                    shared memory for parallel processing
+                env_type: str or None
+                    used to determine if n_targs, n_items, and n_aligned
+                    should be included in the shared_exp dict
             share_tensors: bool
-                if true, each tensor within shared_exp is moved to the
-                shared memory for parallel processing
-            env_type: str or None
-                used to determine if n_targs, n_items, and n_aligned
-                should be included in the shared_exp dict
+                set to true if using the experience replay accross
+                multiple procs
         Members:
             shared_exp: dict
                 keys: str
@@ -139,7 +143,7 @@ class ExperienceReplay(torch.utils.data.Dataset):
             for key in self.shared_exp.keys():
                 self.shared_exp[key].share_memory_()
         self.harvest_exp()
-    
+
     def harvest_exp(self):
         """
         Copys the shared tensors so that the runners can continue
@@ -150,8 +154,9 @@ class ExperienceReplay(torch.utils.data.Dataset):
                 deep copies the shared experience
         """
         self.exp = {
-            k: v.detach().clone() for k,v in self.shared_exp.items()
+          k: v.detach().data.clone() for k,v in self.shared_exp.items()
         }
+        return self.exp
 
     def __len__(self):
         raw_len = len(self.shared_exp["rews"][0]) - self.seq_len
@@ -184,7 +189,7 @@ class ExperienceReplay(torch.utils.data.Dataset):
         data["drops"] = self.get_drops(
             self.hyps,
             data["grabs"],
-            data["disp_targs"]
+            data["is_animating"]
         )
         return data
 
@@ -222,14 +227,15 @@ class ExperienceReplay(torch.utils.data.Dataset):
             raise StopIteration
 
     @staticmethod
-    def get_drops(hyps, grabs, disp_targs):
+    def get_drops(hyps, grabs, is_animating):
         """
         Returns a tensor denoting steps in which the agent dropped an
         item. This always means that the player is still on the item
         when the prediction happens.
         
-        WARNING: this tensor has been bastardized to simply denote
-        when the agent should make a language prediction about n_items.
+        WARNING: the returned tensor has been bastardized to simply
+        denote when the agent should make a language prediction about
+        n_items.
 
         The tensor returned is also actually a LongTensor, not a Bool
         Tensor. Assumes 1 means PILE, and 2 means BUTTON and 3 means
@@ -241,11 +247,15 @@ class ExperienceReplay(torch.utils.data.Dataset):
         Args:
             hyps: dict
                 the hyperparameters
+                lang_on_drops_only: bool
+                env_type: str
+                count_targs: bool
+                drops_perc_threshold: float
             grabs: Long Tensor (B,N)
                 a tensor denoting the item grabbed by the agent at
                 each timestep. Assumes 1 means PILE, and 2 means BUTTON
                 and 3 means ITEM
-            disp_targs: torch LongTensor (..., N)
+            is_animating: torch LongTensor (..., N)
                 0s denote the environment was not displaying the targets
                 anymore. 1s denote the targets were displayed
         Returns:
@@ -261,9 +271,11 @@ class ExperienceReplay(torch.utils.data.Dataset):
         drops = grabs.clone().long()
 
         if hyps["env_type"] in env_types:
+            if try_key(hyps, "lang_loc_type", 0) == 1:
+                return is_animating.clone()
             drops[drops>0] = 1
             if try_key(hyps, "count_targs", True):
-                drops = drops | disp_targs
+                drops = drops | (is_animating>0)
             return drops
         drops[grabs!=3] = 0
         drops[grabs==3] = 1
@@ -730,7 +742,7 @@ class ValidationRunner(Runner):
             drops = ExperienceReplay.get_drops(
                 self.hyps,
                 data["grabs"],
-                data["disp_targs"]
+                data["is_animating"]
             )
             self.save_lang_data(
                 data, lang_labels, drops, epoch, self.phase

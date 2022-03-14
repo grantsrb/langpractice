@@ -169,6 +169,7 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
     "drop_p": float
         the probability of zeroing a neuron within the dense
         layers of the network.
+
     "lang_on_drops_only": bool
         if true, language predictions only occur when the agent drops
         an object. Otherwise the language predictions occur at every
@@ -180,6 +181,10 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         Only applies to v4, v7, and v8 variants of gordongames. if true,
         the model will learn to count out the targets in addition to
         the items. If false, model will only count the items.
+    "lang_loc_type": int
+        Only applies to v4, v7, and v8 variants of gordongames. if 0,
+        effectively does nothing. If 1, the language labels will only
+        be for the targets. No counting is performed on the items.
 
     "env_type": str
         the name of the gym environment to be used for the training
