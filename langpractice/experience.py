@@ -428,7 +428,7 @@ class DataCollector:
             args=(model,)
         )
         proc.start()
-        self.procs.append( proc )
+        self.procs.append(proc)
 
     def await_runners(self):
         for i in range(self.hyps["n_envs"]):
@@ -444,7 +444,7 @@ class DataCollector:
     def dispatch_validator(self, epoch):
         self.val_gate_q.put(epoch)
 
-    def terminate_runners(self):
+    def terminate_procs(self):
         """
         Includes the validation runner process
         """
@@ -452,6 +452,8 @@ class DataCollector:
         self.terminate_q.put(1)
         self.dispatch_runners()
         self.dispatch_validator(np.inf)
+        self.await_runners()
+        self.await_validator()
         for proc in self.procs:
             proc.join()
 
@@ -616,11 +618,20 @@ class Runner:
                     self.terminate_q.put(terminate)
                     if terminate==1:
                         if hasattr(self, "shared_exp"):
-                            for k,v in self.shared_exp.items():
+                            keys = list(self.shared_exp.keys())
+                            for k in keys:
+                                v = self.shared_exp[k]
                                 del v
+                                del self.shared_exp[k]
+                            del self.shared_exp
                         if hasattr(self, "model"):
                             del self.model
-                        break
+                        self.stop_q.put(self.idx)
+                        del self.gate_q
+                        del self.stop_q
+                        del self.phase_q
+                        del self.terminate_q
+                        return
                     # Change phase if necessary
                     phase = self.phase_q.get()
                     self.phase_q.put(phase)
@@ -777,12 +788,14 @@ class ValidationRunner(Runner):
                 terminate = self.terminate_q.get()
                 self.terminate_q.put(terminate)
                 if terminate==1:
-                    if hasattr(self, "shared_exp"):
-                        for k,v in self.shared_exp.items():
-                            del v
                     if hasattr(self, "model"):
                         del self.model
-                    break
+                    self.stop_q.put(epoch)
+                    del self.gate_q
+                    del self.stop_q
+                    del self.phase_q
+                    del self.terminate_q
+                    return
                 # Change phase if necessary
                 phase = self.phase_q.get()
                 self.phase_q.put(phase)
@@ -1003,6 +1016,7 @@ class ValidationRunner(Runner):
         }
         ep_count = 0
         n_eps = try_key(self.hyps,"n_eval_eps",10)
+        if self.hyps["exp_name"]=="test": n_eps = 1
         while ep_count < n_eps:
             # Collect the state of the environment
             data["states"].append(state)
