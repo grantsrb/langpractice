@@ -36,7 +36,8 @@ def train(rank, hyps, verbose=True):
         verbose: bool
             determines if the function should print status updates
     """
-    # If resuming, hyperparameters are updated appropriately
+    # If resuming, hyperparameters are updated appropriately.
+    # Actual checkpoint is loaded later.
     _, hyps = get_resume_checkpt(hyps)
     # Set random seeds
     hyps['seed'] = try_key(hyps,'seed', int(time.time()))
@@ -65,14 +66,17 @@ def train(rank, hyps, verbose=True):
     data_collector.init_validator_proc(shared_model)
     # initialize trainer
     trainer = Trainer(hyps, model, recorder, verbose=verbose)
-    if not try_key(hyps,"skip_first_phase",False)\
-            and trainer.phase == try_key(hyps, "first_phase", 0):
+    # Skip first phase if true or if first_phase differs from phase
+    # of trainer.
+    first_phase = try_key(hyps, "first_phase", 0)
+    skip_first_phase = try_key(hyps,"skip_first_phase",False)
+    if not skip_first_phase and trainer.phase == first_phase:
         s = "\n\nBeginning First Phase " + str(trainer.phase)
         recorder.write_to_log(s)
         print(s)
         # Loop training
-        exp_name = hyps["exp_name"]
-        n_epochs = hyps["lang_epochs"] if exp_name != "test" else 2
+        n_epochs = hyps["lang_epochs"] if first_phase==0 else\
+                   hyps["actn_epochs"]
         training_loop(
             n_epochs,
             data_collector,
@@ -93,7 +97,8 @@ def train(rank, hyps, verbose=True):
         hyps["lr"],
         try_key(hyps, "resume_folder", None)
     )
-    n_epochs = hyps["actn_epochs"] if hyps["exp_name"] != "test" else 2
+    n_epochs = hyps["actn_epochs"] if first_phase==0 else\
+               hyps["lang_epochs"]
     s = "\n\nBeginning Second Phase " + str(trainer.phase)
     recorder.write_to_log(s)
     print(s)
@@ -106,7 +111,7 @@ def train(rank, hyps, verbose=True):
         verbose=verbose
     )
     data_collector.terminate_runners()
-    trainer.end_training()
+    trainer.end_training(data_collector, shared_model)
 
 def make_model(hyps):
     """
@@ -178,6 +183,7 @@ def training_loop(n_epochs,
     # Potentially modify starting epoch for resumption of previous
     # training. Defaults to 0 if not resuming or not same phase
     start_epoch = resume_epoch(trainer)
+    if trainer.hyps["exp_name"]=="test": n_epochs = 2
     for epoch in range(start_epoch, n_epochs):
         if verbose:
             print()
@@ -265,7 +271,7 @@ class Trainer:
         """
         folder = try_key(self.hyps, "resume_folder", "")
         lang_checkpt = try_key(self.hyps, "lang_checkpt", None)
-        if folder is not None and folder != "":
+        if folder is not None and folder.strip() != "":
             checkpt = load_checkpoint(folder)
             return try_key(
                 checkpt,
@@ -385,9 +391,9 @@ class Trainer:
                 use_count_words=self.hyps["use_count_words"]
             )
 
-            # Testing
-            #############
-            if (i == 2 or i==1 or i==0) and self.hyps["exp_name"]=="test":
+            ## Testing
+            ##############
+            if self.hyps["exp_name"]=="test" or self.hyps["exp_name"]=="deleteme":
                 grabs = data["grabs"]
                 print("train grabs:")
                 for row in range(len(drops)):
@@ -406,7 +412,14 @@ class Trainer:
                     print(actns[row].cpu().numpy())
 
                 print("Starting new loop")
-                for row in range(len(obs)):
+                #o = obs.detach().cpu().data.numpy()
+                #print("ohspae:", o.shape)
+                #o = o[:,:, 0].transpose((0,2,1,3)).reshape(-1, 45*o.shape[1])
+                #fig = plt.figure(figsize=(10,10))
+                #plt.imshow(o)
+                #plt.savefig("imgs/epoch{}_iter{}.png".format(epoch, i))
+                #plt.show()
+                for row in range(min(len(obs),4)):
                     print("row:",row)
                     for ii,o in enumerate(obs[row].detach().cpu().numpy()):
                         print("seq:", ii)
@@ -417,8 +430,8 @@ class Trainer:
                         print()
                         plt.imshow(o.transpose((1,2,0)).squeeze())
                         plt.show()
-                        #plt.savefig("imgs/epoch{}_row{}_samp{}.png".format(epoch, row, ii))
-            #############
+                #        #plt.savefig("imgs/epoch{}_row{}_samp{}.png".format(epoch, row, ii))
+            ##############
 
             # Resets to h value to appropriate step of last loop
             self.reset_model(model, len(obs))
@@ -596,12 +609,23 @@ class Trainer:
         )
         self.recorder.reset_stats()
 
-    def end_training(self):
+    def end_training(self, data_collector, shared_model):
         """
         Perform all cleanup actions here. Mainly recording the best
         metrics.
+        
+        Args:
+            data_collector: DataCollector
+            shared_model: shared torch nn Module
         """
-        pass
+        keys = list(data_collector.exp_replay.shared_exp.keys())
+        for k in keys:
+            t = data_collector.exp_replay.shared_exp[k]
+            del t
+            del data_collector.exp_replay.shared_exp[k]
+        del shared_model
+        del data_collector.exp_replay
+        del data_collector
 
 def mean_resp(n_items, **kwargs):
     """

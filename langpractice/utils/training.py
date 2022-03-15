@@ -49,6 +49,10 @@ def get_resume_checkpt(hyps, in_place=False, verbose=True):
             argued hyps object. But will be a deep copy of the argued
             hyps if `in_place` is true.
     """
+    # Ignore keys are used to override the hyperparams json associated
+    # with the loaded training. In otherwords, use the ignore keys
+    # to specify new hyperparameters in the current training instead
+    # of the hyperparameters from the training that is being loaded.
     ignore_keys = [
         'n_epochs',
         "lang_epochs",
@@ -363,7 +367,7 @@ def hyper_search(hyps, hyp_ranges, train_fxn):
     result_count = 0
     print("Starting Hyperloop")
     while not hyper_q.empty():
-        print("Searches left:", hyper_q.qsize(),"-- Running Time:",
+        print("\n\nSearches left:", hyper_q.qsize(),"-- Running Time:",
                                              time.time()-starttime)
         hyps = hyper_q.get()
 

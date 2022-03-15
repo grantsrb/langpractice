@@ -160,6 +160,7 @@ class ExperienceReplay(torch.utils.data.Dataset):
 
     def __len__(self):
         raw_len = len(self.shared_exp["rews"][0]) - self.seq_len
+        #raw_len = len(self.shared_exp["rews"][0])
         if self.roll_data:
             return raw_len
         return int(raw_len//self.seq_len)
@@ -332,21 +333,26 @@ class DataCollector:
                     n_envs: int
                         the number of runners to instantiate
         """
+        self.n_envs = hyps["n_envs"]
+        hyps["batch_size"]=(hyps["batch_size"]//self.n_envs)*self.n_envs
         self.hyps = hyps
         self.batch_size = self.hyps['batch_size']
         # Create gating mechanisms
-        self.gate_q = mp.Queue(self.batch_size)
-        self.stop_q = mp.Queue(self.batch_size)
+        self.gate_q = mp.Queue(self.n_envs)
+        self.stop_q = mp.Queue(self.n_envs)
         self.val_gate_q = mp.Queue(1)
         self.val_stop_q = mp.Queue(1)
         self.phase_q = mp.Queue(1)
         self.phase_q.put(try_key(hyps, "first_phase", 0))
+        self.terminate_q = mp.Queue(1)
+        self.terminate_q.put(0)
         # Get observation, actn, and lang shapes
         self.validator = ValidationRunner(
             self.hyps,
             gate_q=self.val_gate_q,
             stop_q=self.val_stop_q,
-            phase_q=self.phase_q
+            phase_q=self.phase_q,
+            terminate_q=self.terminate_q
         )
         self.validator.create_new_env()
         self.obs_shape = self.validator.env.shape
@@ -359,6 +365,7 @@ class DataCollector:
         )
         if lang_range is None: lang_range = self.hyps["targ_range"]
         self.hyps["lang_size"] = lang_range[1]+1
+        # If comparison or piraha language, must change lang_size
         if int(self.hyps["use_count_words"]) == 0:
             self.hyps["lang_size"] = 3
         elif int(self.hyps["use_count_words"]) == 2:
@@ -366,19 +373,21 @@ class DataCollector:
         # Initialize Experience Replay
         self.exp_replay = ExperienceReplay(hyps)
         # Initialize runners
-        self.runners = []
-        offset = try_key(self.hyps, 'runner_seed_offset', 0)
         # We add one here because the validation environment defaults
         # to the argued seed without offset
-        for i in range(1,self.hyps['n_envs']+1):
-            seed = self.hyps["seed"] + offset + i
+        self.runners = []
+        offset = try_key(self.hyps, 'runner_seed_offset', 0)
+        for i in range(self.n_envs):
+            seed = self.hyps["seed"] + offset + i + 1
             temp_hyps = {**self.hyps, "seed": seed}
             runner = Runner(
+                i,
                 self.exp_replay.shared_exp,
                 temp_hyps,
                 self.gate_q,
                 self.stop_q,
-                self.phase_q
+                self.phase_q,
+                terminate_q=self.terminate_q
             )
             self.runners.append(runner)
 
@@ -422,11 +431,11 @@ class DataCollector:
         self.procs.append( proc )
 
     def await_runners(self):
-        for i in range(self.hyps["batch_size"]):
+        for i in range(self.hyps["n_envs"]):
             self.stop_q.get()
 
     def dispatch_runners(self):
-        for i in range(self.hyps["batch_size"]):
+        for i in range(self.hyps["n_envs"]):
             self.gate_q.put(i)
 
     def await_validator(self):
@@ -439,8 +448,12 @@ class DataCollector:
         """
         Includes the validation runner process
         """
+        self.terminate_q.get()
+        self.terminate_q.put(1)
+        self.dispatch_runners()
+        self.dispatch_validator(np.inf)
         for proc in self.procs:
-            proc.terminate()
+            proc.join()
 
     def update_phase(self, phase):
         old_phase = self.phase_q.get()
@@ -465,9 +478,17 @@ def sample_zipfian(hyps):
     return None
 
 class Runner:
-    def __init__(self, shared_exp, hyps, gate_q, stop_q, phase_q):
+    def __init__(self, idx,
+                       shared_exp,
+                       hyps,
+                       gate_q,
+                       stop_q,
+                       phase_q,
+                       terminate_q):
         """
         Args:
+            idx: int
+                an identifier for the runner
             hyps: dict
                 keys: str
                     "gamma": reward decay coeficient
@@ -511,13 +532,18 @@ class Runner:
             phase_q: multiprocessing Queue.
                 Used to indicate from the main process that the phase
                 has changed.
+            terminate_q: multiprocessing Queue.
+                Used to indicate the end of the training from the main
+                process.
         """
 
         self.hyps = hyps
         self.shared_exp = shared_exp
+        self.idx = idx
         self.gate_q = gate_q
         self.stop_q = stop_q
         self.phase_q = phase_q
+        self.terminate_q = terminate_q
         self.obs_deque = deque(maxlen=hyps['n_frame_stack'])
         env_type = self.hyps['env_type']
         self.oracle = globals()[self.hyps["oracle_type"]](env_type)
@@ -575,22 +601,39 @@ class Runner:
         self.model = model
         if model is None:
             self.model = NullModel(**self.hyps)
+        bsize = self.hyps["batch_size"]
+        n_envs = self.hyps["n_envs"]
         state = self.create_new_env()
         self.ep_rew = 0
         while True:
             with torch.no_grad():
                 # Await collection signal from main proc
                 idx = self.gate_q.get()
-                # Change phase if necessary
-                phase = self.phase_q.get()
-                self.phase_q.put(phase)
-                if self.phase != phase:
-                    self.phase = phase
-                    state = self.create_new_env()
-                # Collect rollout
-                self.rollout(idx, self.model)
-                # Signals to main process that data has been collected
-                self.stop_q.put(idx)
+                if idx != self.idx:
+                    self.gate_q.put(idx)
+                else:
+                    terminate = self.terminate_q.get()
+                    self.terminate_q.put(terminate)
+                    if terminate==1:
+                        if hasattr(self, "shared_exp"):
+                            for k,v in self.shared_exp.items():
+                                del v
+                        if hasattr(self, "model"):
+                            del self.model
+                        break
+                    # Change phase if necessary
+                    phase = self.phase_q.get()
+                    self.phase_q.put(phase)
+                    if self.phase != phase:
+                        self.phase = phase
+                        state = self.create_new_env()
+                    # Collect rollouts
+                    for i in range(bsize//n_envs):
+                        idx = self.idx*(bsize//n_envs) + i
+                        if idx < bsize:
+                            self.rollout(idx, self.model)
+                    # Signals to main process that data has been collected
+                    self.stop_q.put(self.idx)
 
     def rollout(self, idx, model):
         """
@@ -664,6 +707,7 @@ class ValidationRunner(Runner):
                        gate_q=None,
                        stop_q=None,
                        phase_q=None,
+                       terminate_q=None,
                        phase=0):
         """
         Args:
@@ -698,6 +742,8 @@ class ValidationRunner(Runner):
         self.gate_q = gate_q
         self.stop_q = stop_q
         self.phase_q = phase_q
+        self.terminate_q = terminate_q
+        # Default to targ_range if no val_targ_range is specified
         if try_key(self.hyps, "val_targ_range", None) is None:
             self.hyps["val_targ_range"] = self.hyps["targ_range"]
         self.hyps["targ_range"] = self.hyps["val_targ_range"]
@@ -708,6 +754,45 @@ class ValidationRunner(Runner):
         self.obs_deque = deque(maxlen=hyps['n_frame_stack'])
         self.oracle = globals()[self.hyps["oracle_type"]](**self.hyps)
         self.rand = np.random.default_rng(self.hyps["seed"])
+
+    def run(self, model=None):
+        """
+        run is the entry function to begin collecting rollouts from the
+        environment. gate_q indicates when to begin collecting a
+        rollout and is controlled from the main process. The stop_q is
+        used to indicate to the main process that a new rollout has
+        been collected.
+        """
+        self.set_random_seed(self.hyps["seed"])
+        self.phase = try_key(self.hyps, "first_phase", 0)
+        self.model = model
+        if model is None:
+            self.model = NullModel(**self.hyps)
+        state = self.create_new_env()
+        self.ep_rew = 0
+        while True:
+            with torch.no_grad():
+                # Await collection signal from main proc
+                epoch = self.gate_q.get()
+                terminate = self.terminate_q.get()
+                self.terminate_q.put(terminate)
+                if terminate==1:
+                    if hasattr(self, "shared_exp"):
+                        for k,v in self.shared_exp.items():
+                            del v
+                    if hasattr(self, "model"):
+                        del self.model
+                    break
+                # Change phase if necessary
+                phase = self.phase_q.get()
+                self.phase_q.put(phase)
+                if self.phase != phase:
+                    self.phase = phase
+                    state = self.create_new_env()
+                # Collect rollouts
+                self.rollout(epoch, self.model)
+                # Signals to main process that data has been collected
+                self.stop_q.put(epoch)
 
     def rollout(self, epoch, model, *args, **kwargs):
         """
@@ -726,14 +811,14 @@ class ValidationRunner(Runner):
         model.eval()
 
         # Reset every on every validation run
-        rng = range(
+        rainj = range(
             self.hyps["targ_range"][0],
             self.hyps["targ_range"][1]+1
         )
         self.hyps["seed"] = self.seed
         avg_acc = 0
         avg_loss = 0
-        for n_targs in rng:
+        for n_targs in rainj:
             state = self.create_new_env(n_targs=n_targs)
             model.reset(1)
 
