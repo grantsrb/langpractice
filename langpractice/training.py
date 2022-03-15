@@ -111,7 +111,6 @@ def train(rank, hyps, verbose=True):
         shared_model,
         verbose=verbose
     )
-    data_collector.terminate_runners()
     trainer.end_training(data_collector, shared_model)
 
 def make_model(hyps):
@@ -619,6 +618,7 @@ class Trainer:
             data_collector: DataCollector
             shared_model: shared torch nn Module
         """
+        data_collector.terminate_procs()
         keys = list(data_collector.exp_replay.shared_exp.keys())
         for k in keys:
             t = data_collector.exp_replay.shared_exp[k]
