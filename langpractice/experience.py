@@ -159,7 +159,7 @@ class ExperienceReplay(torch.utils.data.Dataset):
         return self.exp
 
     def __len__(self):
-        raw_len = len(self.shared_exp["rews"][0]) - self.seq_len
+        raw_len = len(self.shared_exp["rews"][0]) - self.seq_len + 1
         #raw_len = len(self.shared_exp["rews"][0])
         if self.roll_data:
             return raw_len

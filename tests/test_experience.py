@@ -72,7 +72,7 @@ class TestExperienceReplay(unittest.TestCase):
             "seq_len": 2,
             }
         exp = self.make_exp(override)
-        self.assertEqual(len(exp), override["exp_len"]-override["seq_len"])
+        self.assertEqual(len(exp), override["exp_len"]-override["seq_len"]+1)
 
     def test_len_rolldatafalse(self):
         override = {
@@ -320,7 +320,7 @@ class TestExperienceReplay(unittest.TestCase):
             "lang_on_drops_only": True,
             "env_type": "gordongames-v4",
             "count_targs": True,
-            "lang_loc_type": 1,
+            "lang_targs_only": 1,
             "drops_perc_threshold": 0.05,
             }
         grabs = torch.LongTensor([
