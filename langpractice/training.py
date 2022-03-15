@@ -398,6 +398,9 @@ class Trainer:
                 print("train grabs:")
                 for row in range(len(drops)):
                     print(grabs[row].cpu().numpy())
+                print("train n_targs:")
+                for row in range(len(drops)):
+                    print(n_targs[row].cpu().numpy())
                 print("train n_items:")
                 for row in range(len(drops)):
                     print(n_items[row].cpu().numpy())
@@ -424,6 +427,7 @@ class Trainer:
                     for ii,o in enumerate(obs[row].detach().cpu().numpy()):
                         print("seq:", ii)
                         print("n_items:", n_items[row,ii].cpu().numpy())
+                        print("n_targs:", n_targs[row,ii].cpu().numpy())
                         print("drops:", drops[row,ii].cpu().numpy())
                         print("labels:", labels[row,ii].cpu().numpy())
                         print("actns:", actns[row,ii].cpu().numpy())
