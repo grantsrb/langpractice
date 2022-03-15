@@ -41,15 +41,17 @@ def distr_ranges(script, meta, rng_paths):
     exe = "python3 {}".format(script)
     for rng_path, device in zip(rng_paths, meta["devices"]):
         cuda = "export CUDA_VISIBLE_DEVICES=" + str(device)
+        deterministic = "export CUBLAS_WORKSPACE_CONFIG=:4096:8"
         sesh_name = "{}{}".format(exp_name[:4],device)
         timestamp = str(datetime.now()).replace(" ", "_")
         timestamp = timestamp.split(".")[0].replace(":",".")
         fname = sesh_name+"_"+timestamp+".txt"
         log_file = os.path.join(stdout_folder, fname)
-        command = "{} \"{}\" \'{}; {} {} {}\'".format(
+        command = "{} \"{}\" \'{}; {}; {} {} {}\'".format(
             tmux_sesh,
             sesh_name,
             cuda,
+            deterministic,
             exe,
             meta["hyperparams"],
             rng_path
