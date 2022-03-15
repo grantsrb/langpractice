@@ -415,13 +415,12 @@ class Trainer:
                     print(actns[row].cpu().numpy())
 
                 print("Starting new loop")
-                #o = obs.detach().cpu().data.numpy()
-                #print("ohspae:", o.shape)
-                #o = o[:,:, 0].transpose((0,2,1,3)).reshape(-1, 45*o.shape[1])
-                #fig = plt.figure(figsize=(10,10))
-                #plt.imshow(o)
-                #plt.savefig("imgs/epoch{}_iter{}.png".format(epoch, i))
-                #plt.show()
+                o = obs.detach().cpu().data.numpy()
+                o = o[:,:, 0].transpose((0,2,1,3)).reshape(-1, 45*o.shape[1])
+                fig = plt.figure(figsize=(10,10))
+                plt.imshow(o)
+                plt.savefig("imgs/epoch{}_iter{}.png".format(epoch, i))
+                ##plt.show()
                 for row in range(min(len(obs),4)):
                     print("row:",row)
                     for ii,o in enumerate(obs[row].detach().cpu().numpy()):
@@ -434,7 +433,7 @@ class Trainer:
                         print()
                         plt.imshow(o.transpose((1,2,0)).squeeze())
                         plt.show()
-                #        #plt.savefig("imgs/epoch{}_row{}_samp{}.png".format(epoch, row, ii))
+                ##        #plt.savefig("imgs/epoch{}_row{}_samp{}.png".format(epoch, row, ii))
             ##############
 
             # Resets to h value to appropriate step of last loop
