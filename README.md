@@ -181,7 +181,7 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         Only applies to v4, v7, and v8 variants of gordongames. if true,
         the model will learn to count out the targets in addition to
         the items. If false, model will only count the items.
-    "lang_loc_type": int
+    "lang_targs_only": int
         Only applies to v4, v7, and v8 variants of gordongames. if 0,
         effectively does nothing. If 1, the language labels will only
         be for the targets. No counting is performed on the items.

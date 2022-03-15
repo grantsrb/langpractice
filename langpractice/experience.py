@@ -252,7 +252,7 @@ class ExperienceReplay(torch.utils.data.Dataset):
                 env_type: str
                 count_targs: bool
                 drops_perc_threshold: float
-                lang_loc_type: int
+                lang_targs_only: int
                     if 0, does nothing. If 1, will only return drops
                     where is_animating is true. This argument is
                     overridden by lang_on_drops_only being false.
@@ -277,7 +277,7 @@ class ExperienceReplay(torch.utils.data.Dataset):
         drops = grabs.clone().long()
 
         if hyps["env_type"] in env_types:
-            if try_key(hyps, "lang_loc_type", 0) == 1:
+            if try_key(hyps, "lang_targs_only", 0) == 1:
                 return is_animating.clone()
             drops[drops>0] = 1
             if try_key(hyps, "count_targs", True):

@@ -43,6 +43,11 @@ def train(rank, hyps, verbose=True):
     hyps['seed'] = try_key(hyps,'seed', int(time.time()))
     torch.manual_seed(hyps["seed"])
     np.random.seed(hyps["seed"])
+    try:
+        torch.use_deterministic_algorithms(True)
+    except Exception as e:
+        print(e)
+        print("You can ignore this error, but note that this training is not reproducible")
     # Initialize Data Collector
     # DataCollector's Initializer does Important changes to hyps
     data_collector = DataCollector(hyps)
