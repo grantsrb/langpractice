@@ -452,8 +452,6 @@ class DataCollector:
         self.terminate_q.put(1)
         self.dispatch_runners()
         self.dispatch_validator(np.inf)
-        self.await_runners()
-        self.await_validator()
         for proc in self.procs:
             proc.join()
 
@@ -627,6 +625,7 @@ class Runner:
                         if hasattr(self, "model"):
                             del self.model
                         self.stop_q.put(self.idx)
+                        print("Terminating runner", self.idx)
                         del self.gate_q
                         del self.stop_q
                         del self.phase_q
@@ -791,6 +790,7 @@ class ValidationRunner(Runner):
                     if hasattr(self, "model"):
                         del self.model
                     self.stop_q.put(epoch)
+                    print("Terminating validator process")
                     del self.gate_q
                     del self.stop_q
                     del self.phase_q
