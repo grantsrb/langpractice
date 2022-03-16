@@ -624,7 +624,6 @@ class Runner:
                             del self.shared_exp
                         if hasattr(self, "model"):
                             del self.model
-                        self.stop_q.put(self.idx)
                         print("Terminating runner", self.idx)
                         del self.gate_q
                         del self.stop_q
@@ -789,7 +788,6 @@ class ValidationRunner(Runner):
                 if terminate==1:
                     if hasattr(self, "model"):
                         del self.model
-                    self.stop_q.put(epoch)
                     print("Terminating validator process")
                     del self.gate_q
                     del self.stop_q
