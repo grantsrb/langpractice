@@ -136,6 +136,14 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
     "model_type": str
         the name of the model class that you wish to use for the
         training. i.e. "SimpleCNN"
+    "lstm_lang_first": bool
+        only used in multi-lstm model types. If true, the h
+        vector from the first LSTM will be used as the input
+        to the language layers. The second h vector will then
+        be used for the action layers. If False, the second h
+        vector will be used for language and the first h for
+        actions.
+
     "h_size": int
         the size of the hidden dimension for dense networks
     "bnorm": bool

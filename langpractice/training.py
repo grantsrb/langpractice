@@ -629,6 +629,12 @@ class Trainer:
             del data_collector.exp_replay.shared_exp[k]
         del shared_model
         del data_collector.exp_replay
+        del data_collector.gate_q
+        del data_collector.stop_q
+        del data_collector.val_gate_q
+        del data_collector.val_stop_q
+        del data_collector.phase_q
+        del data_collector.terminate_q
         del data_collector
 
 def mean_resp(n_items, **kwargs):

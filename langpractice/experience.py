@@ -670,7 +670,7 @@ class Runner:
             if self.h_bookmark is None:
                 model.reset(1)
             else:
-                model.h, model.c = self.h_bookmark
+                model.hs, model.cs = self.h_bookmark
         exp_len = self.hyps['exp_len']
         for i in range(exp_len):
             # Collect the state of the environment
@@ -709,7 +709,10 @@ class Runner:
             if done: model.reset(1)
         self.state_bookmark = state
         if hasattr(model, "h"):
-            self.h_bookmark = (model.h, model.c)
+            self.h_bookmark = (
+                [h.detach().data for h in model.hs],
+                [c.detach().data for c in model.cs]
+            )
 
 class ValidationRunner(Runner):
     def __init__(self, hyps,
@@ -1062,8 +1065,6 @@ class ValidationRunner(Runner):
             if self.hyps["render"]: self.env.render()
             ep_count += int(done)
         self.state_bookmark = state
-        if hasattr(model, "h"):
-            self.h_bookmark = (model.h.data, model.c.data)
         # S stands for the collected sequence
         data["actn_preds"] = torch.cat(data["actn_preds"], dim=0) #(S,A)
         data["lang_preds"] = torch.cat(data["lang_preds"], dim=1) #(N,S,L)

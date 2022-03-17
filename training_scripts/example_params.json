@@ -19,6 +19,8 @@
     "second_phase": 1,
 
     "model_type": "SimpleLSTM",
+    "lstm_lang_first": true,
+
     "h_size": 256,
     "bnorm": false,
     "lnorm": true,

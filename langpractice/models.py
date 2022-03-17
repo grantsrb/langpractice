@@ -26,6 +26,7 @@ class Model(torch.nn.Module):
         dense_noise=0,
         feat_drop_p=0,
         drop_p=0,
+        lstm_lang_first=True,
         *args, **kwargs
     ):
         """
@@ -57,6 +58,13 @@ class Model(torch.nn.Module):
             drop_p: float
                 the probability of zeroing a neuron within the dense
                 layers of the network.
+            lstm_lang_first: bool
+                only used in multi-lstm model types. If true, the h
+                vector from the first LSTM will be used as the input
+                to the language layers. The second h vector will then
+                be used for the action layers. If False, the second h
+                vector will be used for language and the first h for
+                actions.
         """
         super().__init__()
         self.inpt_shape = inpt_shape
@@ -71,6 +79,8 @@ class Model(torch.nn.Module):
         self.drop_p = drop_p
         self.n_lang_denses = n_lang_denses
         self._trn_whls = nn.Parameter(torch.ones(1), requires_grad=False)
+        self.lstm_lang_first = lstm_lang_first
+        self.n_lstms = 1
 
     @property
     def is_cuda(self):
@@ -522,7 +532,7 @@ class SimpleLSTM(Model):
         self.h = torch.zeros(batch_size, self.h_size).float()
         self.c = torch.zeros(batch_size, self.h_size).float()
         # Ensure memory is on appropriate device
-        if self.features[0].weight.is_cuda:
+        if self.is_cuda:
             self.h.to(self.get_device())
             self.c.to(self.get_device())
         self.prev_hs = [self.h]
@@ -619,6 +629,172 @@ class SimpleLSTM(Model):
             self.prev_cs.append(self.c.detach().data)
         return torch.cat(actns, dim=1), torch.cat(langs, dim=2)
 
+class NoConvLSTM(SimpleLSTM):
+    """
+    An LSTM that only uses two dense layers as the preprocessing of the
+    image before input to the recurrence. Instead of a convolutional
+    vision module, we use a single layer MLP
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.flat_size = int(np.prod(self.inpt_shape[-3:]))
+        modules = [Flatten()]
+        if self.lnorm: modules.append(nn.LayerNorm(self.flat_size))
+        modules.append(nn.Linear(self.flat_size, self.flat_size))
+        modules.append(nn.ReLU())
+        if self.lnorm: modules.append(nn.LayerNorm(self.flat_size))
+        modules.append(nn.Linear(self.flat_size, self.flat_size))
+        if self.feat_drop_p > 0:
+            modules.append(nn.Dropout(self.feat_drop_p))
+        modules.append(nn.ReLU())
+        self.features = nn.Sequential(*modules)
+
+        self.lstm = nn.LSTMCell(self.flat_size, self.h_size)
+
+class DoubleLSTM(SimpleLSTM):
+    """
+    A recurrent LSTM model.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.n_lstms = 2
+        self.lstm0 = self.lstm
+        self.lstm1 = nn.LSTMCell(self.h_size, self.h_size)
+        self.reset(1)
+
+    def reset(self, batch_size=1):
+        """
+        Resets the memory vectors
+
+        Args:
+            batch_size: int
+                the size of the incoming batches
+        Returns:
+            None
+        """
+        self.hs = [ ]
+        self.cs = [ ]
+        for i in range(self.n_lstms):
+            self.hs.append(torch.zeros(batch_size, self.h_size).float())
+            self.cs.append(torch.zeros(batch_size, self.h_size).float())
+        # Ensure memory is on appropriate device
+        if self.is_cuda:
+            for i in range(self.n_lstms):
+                self.hs[i] = self.hs[i].to(self.get_device())
+                self.cs[i] = self.cs[i].to(self.get_device())
+        self.prev_hs = [self.hs]
+        self.prev_cs = [self.cs]
+
+    def partial_reset(self, dones):
+        """
+        Uses the done signals to reset appropriate parts of the h and
+        c vectors.
+
+        Args:
+            dones: torch LongTensor (B,)
+                h and c are zeroed along any row in which dones[row]==1
+        Returns:
+            h: torch FloatTensor (B, H)
+            c: torch FloatTensor (B, H)
+        """
+        mask = (1-dones).unsqueeze(-1)
+        hs = [h*mask for h in self.hs]
+        cs = [c*mask for c in self.cs]
+        return hs,cs
+
+    def reset_to_step(self, step=0):
+        """
+        This function resets all recurrent states in a model to the
+        previous recurrent state just after the argued step. So, the
+        model takes the 0th step then the 0th h and c vectors are the
+        h and c vectors just after the model took this step.
+
+        Args:
+            step: int
+                the index of the step to revert the recurrence to
+        """
+        assert step < len(self.prev_hs), "invalid step"
+        self.hs = self.prev_hs[step]
+        self.cs = self.prev_cs[step]
+        device = self.get_device()
+        if self.is_cuda:
+            self.hs = [h.detach().data.to(device) for h in self.hs]
+            self.cs = [c.detach().data.to(device) for c in self.cs]
+        else:
+            self.hs = [h.detach().data for h in self.hs]
+            self.cs = [c.detach().data for c in self.cs]
+
+    def step(self, x, *args, **kwargs):
+        """
+        Performs a single step rather than a complete sequence of steps
+
+        Args:
+            x: torch FloatTensor (B, C, H, W)
+        Returns:
+            actn: torch Float Tensor (B, K)
+            langs: list of torch Float Tensor (B, L)
+        """
+        if x.is_cuda:
+            for i in range(self.n_lstms):
+                self.hs[i] = self.hs[i].to(x.get_device())
+                self.cs[i] = self.cs[i].to(x.get_device())
+        fx = self.features(x)
+        fx = fx.reshape(len(x), -1) # (B, N)
+        h0, c0 = self.lstm0( fx, (self.hs[0], self.cs[0]) )
+        if self.lnorm:
+            c0 = self.layernorm_c(c0)
+            h0 = self.layernorm_h(h0)
+        h1, c1 = self.lstm1( h0, (self.hs[1], self.cs[1]) )
+        if self.lstm_lang_first:
+            langs = []
+            for dense in self.lang_denses:
+                langs.append(dense(h0))
+            actn = self.actn_dense(h1)
+            self.hs = [h0, h1]
+            self.cs = [c0, c1]
+            return actn, langs
+        else:
+            langs = []
+            for dense in self.lang_denses:
+                langs.append(dense(h1))
+            actn = self.actn_dense(h0)
+            self.hs = [h0, h1]
+            self.cs = [c0, c1]
+            return actn, langs
+
+
+    def forward(self, x, dones, *args, **kwargs):
+        """
+        Args:
+            x: torch FloatTensor (B, S, C, H, W)
+            dones: torch Long Tensor (B, S)
+                the done signals for the environment. the h and c
+                vectors are reset when encountering a done signal
+        Returns:
+            actns: torch FloatTensor (B, S, N)
+                N is equivalent to self.actn_size
+            langs: torch FloatTensor (N,B,S,L)
+        """
+        seq_len = x.shape[1]
+        actns = []
+        langs = []
+        self.prev_hs = []
+        self.prev_cs = []
+        if x.is_cuda:
+            dones = dones.to(x.get_device())
+        for s in range(seq_len):
+            actn, lang = self.step(x[:,s])
+            actns.append(actn.unsqueeze(1))
+            if self.n_lang_denses == 1:
+                lang = lang[0].unsqueeze(0).unsqueeze(2) # (1, B, 1, L)
+            else:
+                lang = torch.stack(lang, dim=0).unsqueeze(2)# (N, B, 1, L)
+            langs.append(lang)
+            self.hs, self.cs = self.partial_reset(dones[:,s])
+            self.prev_hs.append([h.detach().data for h in self.hs])
+            self.prev_cs.append([c.detach().data for c in self.cs])
+        return torch.cat(actns, dim=1), torch.cat(langs, dim=2)
 
 
 
