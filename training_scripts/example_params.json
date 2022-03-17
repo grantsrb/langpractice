@@ -9,6 +9,7 @@
     "del_prev_sd": true,
     "seed": 1234,
     "runner_seed_offset": 1,
+
     "lang_epochs": 90,
     "actn_epochs": 200,
     "trn_whls_epoch": null,
@@ -37,7 +38,7 @@
     "lang_on_drops_only": true,
     "count_targs": true,
     "drops_perc_threshold": 0,
-    "lang_loc_type": 0,
+    "lang_targs_only": false,
 
     "env_type": "gordongames-v1",
     "harsh": true,
