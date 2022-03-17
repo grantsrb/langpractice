@@ -2,7 +2,7 @@ from langpractice.experience import DataCollector
 from langpractice.models import * # SimpleCNN, SimpleLSTM
 from langpractice.recorders import Recorder
 from langpractice.utils.save_io import load_checkpoint
-from langpractice.utils.utils import try_key, get_lang_labels, get_loss_and_accs
+from langpractice.utils.utils import try_key, get_loss_and_accs
 from langpractice.utils.training import get_resume_checkpt
 
 from torch.optim import Adam, RMSprop
@@ -383,13 +383,7 @@ class Trainer:
             drops = data["drops"]
             n_items = data["n_items"]
             n_targs = data["n_targs"]
-
-            labels = get_lang_labels(
-                n_items,
-                n_targs,
-                max_label=model.lang_size-1,
-                use_count_words=self.hyps["use_count_words"]
-            )
+            labels = data["lang_labels"]
 
             ## Testing
             ##############

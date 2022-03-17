@@ -156,6 +156,12 @@ class ExperienceReplay(torch.utils.data.Dataset):
         self.exp = {
           k: v.detach().data.clone() for k,v in self.shared_exp.items()
         }
+        self.exp["lang_labels"] = get_lang_labels(
+            self.exp["n_items"],
+            self.exp["n_targs"],
+            max_label=self.hyps["lang_size"]-1,
+            use_count_words=self.hyps["use_count_words"]
+        )
         return self.exp
 
     def __len__(self):
