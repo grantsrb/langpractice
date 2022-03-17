@@ -18,6 +18,7 @@
     "skip_first_phase": false,
     "first_phase": 0,
     "second_phase": 1,
+    "blind_lang": false,
 
     "model_type": "SimpleLSTM",
     "lstm_lang_first": true,

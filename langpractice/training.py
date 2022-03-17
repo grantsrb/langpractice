@@ -385,6 +385,9 @@ class Trainer:
             n_targs = data["n_targs"]
             labels = data["lang_labels"]
 
+            if self.phase == 0 and try_key(self.hyps,"blind_lang",False):
+                obs = torch.zeros_like(obs)
+
             ## Testing
             ##############
             if self.hyps["exp_name"]=="test" or self.hyps["exp_name"]=="deleteme":

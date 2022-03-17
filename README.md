@@ -132,6 +132,11 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         actions, or both during the second phase of the training.
         0 means language only. 1 means actions only. 2 means both
         language and actions.
+    "blind_lang": bool
+        if true, the observations are zeroed out during language 
+        training creating the effect of the model purely learning
+        language. If false, this variable is effectively ignorned.
+        Defaults to False.
 
     "model_type": str
         the name of the model class that you wish to use for the
@@ -142,7 +147,7 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         to the language layers. The second h vector will then
         be used for the action layers. If False, the second h
         vector will be used for language and the first h for
-        actions.
+        actions. Defaults to True
 
     "h_size": int
         the size of the hidden dimension for dense networks
