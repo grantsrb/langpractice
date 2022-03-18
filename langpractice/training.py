@@ -71,6 +71,7 @@ def train(rank, hyps, verbose=True):
     # of trainer.
     first_phase = try_key(hyps, "first_phase", 0)
     skip_first_phase = try_key(hyps,"skip_first_phase",False)
+    hyps_error_catching(hyps)
     if not skip_first_phase and trainer.phase == first_phase:
         s = "\n\nBeginning First Phase " + str(trainer.phase)
         recorder.write_to_log(s)
@@ -784,4 +785,23 @@ def perc_correct(n_aligned, n_targs, **kwargs):
     """
     perc = (n_aligned == n_targs)
     return perc.mean()*100
+
+def hyps_error_catching(hyps):
+    """
+    Here we can check that the hyperparameter configuration makes sense.
+    """
+    if try_key(hyps,"blind_lang",False):
+        assert try_key(hyps,"drop_perc_threshold",0)
+    if try_key(hyps, "lang_targs_only", False) and\
+            try_key(hyps,"lang_on_drops_only",True)==False:
+        print("Potential conflict between lang_targs_only and lang_on_drops_only")
+        print("lang_on_drops_only takes precedence so language will occur at all steps")
+    if hyps["batch_size"] % hyps["n_envs"] != 0:
+        print(
+            "Batch size of", hyps["batch_size"],
+            "must be divisible by the number of envs", hyps["n_envs"]
+        )
+        hyps["batch_size"] = (hyps["batch_size"]//hyps["n_envs"])*hyps["n_envs"]
+        print("Changing batch_size to", hyps["batch_size"])
+        
 
