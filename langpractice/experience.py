@@ -254,14 +254,14 @@ class ExperienceReplay(torch.utils.data.Dataset):
         Args:
             hyps: dict
                 the hyperparameters
-                lang_on_drops_only: bool
+                langall: bool
                 env_type: str
                 count_targs: bool
                 drops_perc_threshold: float
                 lang_targs_only: int
                     if 0, does nothing. If 1, will only return drops
                     where is_animating is true. This argument is
-                    overridden by lang_on_drops_only being false.
+                    overridden by langall being true.
                     count_targs is overridden by this argument.
             grabs: Long Tensor (B,N)
                 a tensor denoting the item grabbed by the agent at
@@ -278,7 +278,7 @@ class ExperienceReplay(torch.utils.data.Dataset):
         env_types = {"gordongames-v4", "gordongames-v7", "gordongames-v8"}
         if type(grabs) == type(np.asarray([])):
             grabs = torch.from_numpy(grabs).long()
-        if not try_key(hyps, "lang_on_drops_only", True):
+        if try_key(hyps, "langall", False):
             return torch.ones_like(grabs)
         drops = grabs.clone().long()
 

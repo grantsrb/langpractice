@@ -183,22 +183,26 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         the probability of zeroing a neuron within the dense
         layers of the network.
 
-    "lang_on_drops_only": bool
-        if true, language predictions only occur when the agent drops
+    "langall": bool
+        if false, language predictions only occur when the agent drops
         an object. Otherwise the language predictions occur at every
-        step.
+        step. defaults to false. this parameter overrides `count_targs`
+        and `lang_targs_only`
     "drop_prec_threshold": float
         if 0 no effect. Otherwise the drops array will randomly add
         ones so that the language training signal is increased.
     "count_targs": bool
         Only applies to v4, v7, and v8 variants of gordongames. if true,
         the model will learn to count out the targets in addition to
-        the items. If false, model will only count the items.
+        the items. If false, model will only count the items. Differs
+        from langall=True in that it skips the steps that
+        the agent takes to move about the grid. Overridden by
+        `lang_targs_only`
     "lang_targs_only": int
         Only applies to v4, v7, and v8 variants of gordongames. if 0,
         effectively does nothing. If 1, the language labels will only
         be for the targets. No counting is performed on the items.
-        This argument is overridden by lang_on_drops_only being false.
+        This argument is overridden by langall being true.
         count_targs is overridden by this argument. drop_perc_threshold
         has no impact on this argument.
 

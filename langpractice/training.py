@@ -790,12 +790,14 @@ def hyps_error_catching(hyps):
     """
     Here we can check that the hyperparameter configuration makes sense.
     """
+    if "langall" not in hyps and "lang_on_drops_only" in hyps:
+        hyps["langall"] = not hyps["lang_on_drops_only"]
     if try_key(hyps,"blind_lang",False):
         assert try_key(hyps,"drop_perc_threshold",0)
     if try_key(hyps, "lang_targs_only", False) and\
-            try_key(hyps,"lang_on_drops_only",True)==False:
-        print("Potential conflict between lang_targs_only and lang_on_drops_only")
-        print("lang_on_drops_only takes precedence so language will occur at all steps")
+            try_key(hyps,"langall",False):
+        print("Potential conflict between lang_targs_only and langall")
+        print("langall takes precedence. language will occur at all steps")
     if hyps["batch_size"] % hyps["n_envs"] != 0:
         print(
             "Batch size of", hyps["batch_size"],
