@@ -793,7 +793,7 @@ def hyps_error_catching(hyps):
     if "langall" not in hyps and "lang_on_drops_only" in hyps:
         hyps["langall"] = not hyps["lang_on_drops_only"]
     if try_key(hyps,"blind_lang",False):
-        assert try_key(hyps,"drop_perc_threshold",0)
+        assert try_key(hyps,"drop_perc_threshold",0)==0
     if try_key(hyps, "lang_targs_only", False) and\
             try_key(hyps,"langall",False):
         print("Potential conflict between lang_targs_only and langall")
