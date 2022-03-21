@@ -36,7 +36,7 @@
     "drop_p": 0.35,
     "randomize_order": false,
 
-    "lang_on_drops_only": true,
+    "langall": false,
     "count_targs": true,
     "drops_perc_threshold": 0,
     "lang_targs_only": false,
