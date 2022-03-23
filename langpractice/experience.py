@@ -857,7 +857,8 @@ class ValidationRunner(Runner):
             self.save_lang_data(
                 data, lang_labels, drops, epoch, self.phase
             )
-            self.save_ep_data(data, epoch, self.phase)
+            if self.phase != 0:
+                self.save_ep_data(data, epoch, self.phase)
 
 
     def save_lang_data(self,
