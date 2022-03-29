@@ -48,10 +48,11 @@
     "targ_range": [1,10],
     "lang_range": null,
     "actn_range": null,
+
     "zipf_order": 0,
 
     "n_envs": 3,
-    "batch_size": 256,
+    "batch_size": 129,
     "seq_len": 7,
     "exp_len": 1000,
     "reset_trn_env": true,
