@@ -772,6 +772,7 @@ class ValidationRunner(Runner):
         self.obs_deque = deque(maxlen=hyps['n_frame_stack'])
         self.oracle = globals()[self.hyps["oracle_type"]](**self.hyps)
         self.rand = np.random.default_rng(self.hyps["seed"])
+        self.ep_idx = 0 # Used to track which data goes with which ep
 
     def run(self, model=None):
         """
@@ -902,9 +903,10 @@ class ValidationRunner(Runner):
             "label":None,
             "done":None,
             "is_animating":None,
+            "ep_idx": None,
         }
         idxs = drops>=1
-        if idxs.float().sum() <= 1: return
+        if idxs.float().sum() <= 1: return # ensure some data to record
         lang = torch.argmax(data["lang_preds"].mean(0), dim=-1) # (N,)
 
         inpts["pred"] = lang[idxs]
@@ -914,6 +916,7 @@ class ValidationRunner(Runner):
         inpts["n_aligned"] = data["n_aligned"][idxs]
         inpts["done"] = data["dones"][idxs]
         inpts["is_animating"] = data["is_animating"][idxs]
+        inpts["ep_idx"] = data["ep_idx"][idxs]
         inpts = {k:v.cpu().data.numpy() for k,v in inpts.items()}
 
         df = pd.DataFrame(inpts)
@@ -947,7 +950,7 @@ class ValidationRunner(Runner):
             phase: int
             save_name: str
         """
-        keys = ["n_items", "n_targs", "n_aligned"]
+        keys = ["n_items", "n_targs", "n_aligned", "ep_idx"]
         dones = data["dones"].reshape(-1)
         inpts = {
             key: data[key].reshape(-1)[dones==1] for key in keys
@@ -1020,6 +1023,7 @@ class ValidationRunner(Runner):
             "grabs":[],
             "disp_targs":[],
             "is_animating":[],
+            "ep_idx":[],
         }
         ep_count = 0
         n_eps = try_key(self.hyps,"n_eval_eps",10)
@@ -1059,7 +1063,6 @@ class ValidationRunner(Runner):
                 reset=done,
                 n_targs=n_targs
             )
-            if done: model.reset(1)
             data["dones"].append(int(done))
             data["rews"].append(rew)
             data["n_targs"].append(info["n_targs"])
@@ -1068,8 +1071,12 @@ class ValidationRunner(Runner):
             data["grabs"].append(info["grab"])
             data["disp_targs"].append(info["disp_targs"])
             data["is_animating"].append(info["is_animating"])
+            data["ep_idx"].append(self.ep_idx)
             if self.hyps["render"]: self.env.render()
-            ep_count += int(done)
+            if done:
+                model.reset(1)
+                ep_count += 1
+                self.ep_idx += 1
         self.state_bookmark = state
         # S stands for the collected sequence
         data["actn_preds"] = torch.cat(data["actn_preds"], dim=0) #(S,A)
@@ -1083,5 +1090,6 @@ class ValidationRunner(Runner):
         data["n_aligned"] = torch.LongTensor(data["n_aligned"])
         data["disp_targs"] = torch.LongTensor(data["disp_targs"])
         data["is_animating"] = torch.LongTensor(data["is_animating"])
+        data["ep_idx"] = torch.LongTensor(data["ep_idx"])
         return data
 

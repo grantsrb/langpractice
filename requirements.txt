@@ -10,3 +10,4 @@ gym
 mlagents
 mlagents_envs
 gym_unity
+-e git+git://github.com/grantsrb/gordongames.git@master#egg=gordongames
