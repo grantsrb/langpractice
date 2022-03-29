@@ -107,7 +107,9 @@ venv.bak/
 */checkpoints/
 *.pth
 *.p
-training_scripts/*/
+training_scripts/vids/*
+training_scripts/imgs/*
+training_scripts/hyps/*
 
 # Miscellaneous
 */hyperparams.txt
