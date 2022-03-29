@@ -17,7 +17,7 @@ $ python3 record_model.py exp_name/model_folder/
 
 n_episodes = 2 # Set this to longer to get more unique game xp
 repeat = 6 # Set this to longer to linger on images longer
-fps = 5
+fps = 2
 targ_range = (1,5)
 
 if __name__ == "__main__":
