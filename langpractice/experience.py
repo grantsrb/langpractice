@@ -1072,7 +1072,22 @@ class ValidationRunner(Runner):
             data["disp_targs"].append(info["disp_targs"])
             data["is_animating"].append(info["is_animating"])
             data["ep_idx"].append(self.ep_idx)
-            if self.hyps["render"]: self.env.render()
+            if self.hyps["render"]:
+                self.env.render()
+                print(
+                    "Lang (pred, targ):",
+                    torch.argmax(lang.squeeze().cpu().data).item(),
+                    "--",
+                    info["n_items"]
+                )
+                if done:
+                    print(
+                        "Actn (pred, targ):",
+                        info["n_items"],
+                        "--",
+                        info["n_targs"]
+                    )
+                    print()
             if done:
                 model.reset(1)
                 ep_count += 1
