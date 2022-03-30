@@ -21,6 +21,8 @@ fps = 5
 targ_range = (1,5)
 
 if __name__ == "__main__":
+    if not os.path.exists("./vids/"): os.mkdir("vids/")
+    if not os.path.exists("./imgs/"): os.mkdir("imgs/")
     model_folder = sys.argv[1]
     checkpt = lp.utils.save_io.load_checkpoint(
         model_folder,
