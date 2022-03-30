@@ -302,6 +302,10 @@ def get_lang_labels(n_items, n_targs, max_label, use_count_words):
         labels[n_items>n_targs] = 2
     elif int(use_count_words) == 2:
         labels = get_piraha_labels(labels, n_items)
+    elif int(use_count_words) == 3:
+        labels = torch.randint(0,max_label+1, labels.shape)
+        if n_items.is_cuda():
+            labels = labels.to(DEVICE)
     return labels
 
 def get_loss_and_accs(phase,
