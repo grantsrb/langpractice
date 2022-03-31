@@ -279,6 +279,40 @@ def get_piraha_labels(labels, n_items):
         labels[idx] = labs + 2
     return labels
 
+def get_duplicate_labels(labels, n_items, max_label):
+    """
+    Converts the number of items that exist in the game (not
+    including the targets) to a count word that is interchangeable
+    with another count word meaning the same thing. For example, the
+    label for the value "0" can either be 0 or 1 with equal probability.
+    Similarly the label "1" can be either 2 or 3. This pattern continues
+    up to the max label.
+
+    Args:
+        labels: torch Tensor (...,N)
+            the count of the items on the board (a clone of n_items
+            works just fine)
+        n_items: torch Tensor (...,N)
+            the count of the items on the board
+        max_label: int
+            the maximum available label. must be even so that we can
+            stride 2 steps in labels for each step in n_items values.
+            Then we equally distribute both labels amongst the n_items
+            entries equal to the corresponding value
+    Returns:
+        labels: torch LongTensor
+            the updated labels. operates in place 
+    """
+    rand_vals = torch.randint(0,2,labels.shape)
+    for i in range(0,max_label,2):
+        val = i//2
+        if i == max_label-2:
+            idx = n_items>=val
+        else:
+            idx = n_items==val
+        labels[idx] = i+rand_vals[idx]
+    return labels
+
 def get_lang_labels(n_items, n_targs, max_label, use_count_words):
     """
     Determines the language labels based on the type of training.
@@ -300,12 +334,17 @@ def get_lang_labels(n_items, n_targs, max_label, use_count_words):
         labels[n_items<n_targs] = 0
         labels[n_items==n_targs] = 1
         labels[n_items>n_targs] = 2
+    # Piraha labels
     elif int(use_count_words) == 2:
         labels = get_piraha_labels(labels, n_items)
+    # Random labels
     elif int(use_count_words) == 3:
         labels = torch.randint(0,max_label+1, labels.shape)
         if n_items.is_cuda:
             labels = labels.to(DEVICE)
+    # Duplicate labels
+    elif int(use_count_words) == 4:
+        labels = get_duplicate_labels(labels, n_items, max_label)
     return labels
 
 def get_loss_and_accs(phase,

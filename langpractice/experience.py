@@ -370,12 +370,14 @@ class DataCollector:
             self.hyps["targ_range"]
         )
         if lang_range is None: lang_range = self.hyps["targ_range"]
-        self.hyps["lang_size"] = lang_range[1]+1
+        self.hyps["lang_size"] = lang_range[1]+1 # plus one includes zero
         # If comparison or piraha language, must change lang_size
         if int(self.hyps["use_count_words"]) == 0:
             self.hyps["lang_size"] = 3
         elif int(self.hyps["use_count_words"]) == 2:
             self.hyps["lang_size"] = 4
+        elif int(self.hyps["use_count_words"]) == 4:
+            self.hyps["lang_size"] = self.hyps["lang_size"]*2
         # Initialize Experience Replay
         self.exp_replay = ExperienceReplay(hyps)
         # Initialize runners

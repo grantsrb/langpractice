@@ -67,6 +67,26 @@ class TestUtils(unittest.TestCase):
                 diff = float(avg-targ)
                 self.assertTrue(np.abs(diff)<0.01)
 
+    def test_duplicate_labels(self):
+        n_items = torch.randint(0,11, (100,))
+        avgs = torch.zeros_like(n_items)
+        n_loops = 5000
+        for i in range(n_loops):
+            labels = torch.zeros_like(n_items)
+            labels = get_duplicate_labels(labels,n_items, 22)
+            if i < 20:
+                for n,l in zip(n_items,labels):
+                    self.assertTrue((n*2)==l or (n*2+1)==l)
+            avgs = avgs + labels
+        avgs = avgs/n_loops
+        for i in range(torch.max(n_items)):
+            avg = avgs[n_items==i]
+            if len(avg) > 0:
+                avg = avg.mean()
+                targ = ((i*2)+.5)
+                diff = targ-avg
+                self.assertTrue(np.abs(diff)<0.01)
+
     def test_get_lang_labels_english(self):
         max_label = 10
         use_count_words = 1
