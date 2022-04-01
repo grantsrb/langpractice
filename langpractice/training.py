@@ -453,12 +453,13 @@ class Trainer:
             loss,accs = get_loss_and_accs(
                 phase=self.phase,
                 loss_fxn=self.loss_fxn,
-                logits=logits,
-                langs=langs,
-                actns=actns.flatten(),
-                labels=labels.flatten(),
+                actn_preds=actn_preds,
+                lang_preds=langs,
+                actn_targs=actns.flatten(),
+                lang_targs=labels.flatten(),
                 drops=drops.flatten(),
                 n_targs=n_targs.flatten(),
+                n_items=n_items.flatten(),
                 prepender="train",
                 lang_p=self.hyps["lang_p"]
             )
