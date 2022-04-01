@@ -320,6 +320,16 @@ def get_hyps(folder):
     hyps = utils.load_json(hyps_json)
     return hyps
 
+def load_hyps(folder):
+    """
+    Returns a dict of the hyperparameters collected from the json
+    save file in the model folder.
+
+    folder: str
+        path to the folder that contains checkpts and a hyps json file
+    """
+    return get_hyps(folder)
+
 def get_next_exp_num(exp_name):
     """
     Finds the next open experiment id number.
