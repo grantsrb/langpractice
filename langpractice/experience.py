@@ -861,7 +861,7 @@ class ValidationRunner(Runner):
                 data, lang_labels, drops, epoch, self.phase
             )
             self.save_actn_data(data, epoch, self.phase)
-            self.save_epoch_data(data, epoch, self.phase)
+            self.save_epoch_data(data, epoch, self.phase, n_targs)
 
     def save_lang_data(self,
                        data,
@@ -977,6 +977,7 @@ class ValidationRunner(Runner):
                        data,
                        epoch,
                        phase,
+                       n_targs,
                        save_name="epoch_stats.csv"):
         """
         Saves the loss and acc stats averaged over all episodes in the
@@ -987,25 +988,28 @@ class ValidationRunner(Runner):
             data: dict
             epoch: int
             phase: int
+            n_targs: int
+                the number of targets that this data pertains to
             save_name: str
         """
         with torch.no_grad():
             _,losses,accs = get_loss_and_accs(
-                phase=phase,,
-                logits=data["logits"],
-                langs=data["langs"],
-                actns=data["actns"],
-                labels=data[""],
+                phase=phase,
+                actn_preds=data["logits"],
+                lang_preds=data["langs"],
+                actn_targs=data["actns"],
+                lang_targs=data["labels"],
+                drops=data["drops"],
+                n_targs=data["n_targs"],
+                n_items=data["n_items"],
+                prepender="",
+                loss_fxn=self.loss_fxn
             )
-        keys = ["n_items", "n_targs", "n_aligned", "ep_idx"]
-        dones = data["dones"].reshape(-1)
-        inpts = {
-            key: data[key].reshape(-1)[dones==1] for key in keys
-        }
-        inpts = {k:v.cpu().data.numpy() for k,v in inpts.items()}
+        inpts = {**losses, **accs}
         df = pd.DataFrame(inpts)
         df["epoch"] = epoch
         df["phase"] = self.phase
+        df["n_targs"] = n_targs
         path = os.path.join(
             self.hyps["save_folder"],
             save_name
