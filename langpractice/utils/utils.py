@@ -356,8 +356,8 @@ def get_loss_and_accs(phase,
                       drops,
                       n_targs,
                       n_items,
-                      prepender,
-                      loss_fxn,
+                      prepender="",
+                      loss_fxn=F.cross_entropy,
                       lang_p=0.5):
     """
     Calculates the loss and accuracies depending on the phase of
@@ -425,7 +425,6 @@ def get_loss_and_accs(phase,
             actn_targs,
             n_targs,
             loss_fxn,
-            n_items,
             prepender
         )
         p = lang_p if phase == 2 else 0
@@ -504,6 +503,7 @@ def calc_lang_loss_and_accs(preds,
                 accuracies
     """
     accs_array = []
+    losses_array = []
     idxs = drops==1
     categories = categories[idxs]
     labels = labels[idxs].to(DEVICE)
@@ -619,7 +619,11 @@ def calc_accs(logits, targs, categories=None, prepender=""):
             accs[pre+str(cat)] = acc[idxs].mean().item()
     return accs
 
-def calc_losses(logits, targs, categories=None, prepender=""):
+def calc_losses(logits,
+                targs,
+                categories=None,
+                prepender="",
+                loss_fxn=F.cross_entropy):
     """
     Calculates the average accuracy over the batch for each possible
     category
@@ -651,7 +655,7 @@ def calc_losses(logits, targs, categories=None, prepender=""):
     prepender = prepender + "loss"
     logits = logits.reshape(-1, logits.shape[-1])
     targs = targs.reshape(-1)
-    loss = F.cross_entropy(logits, targs, reduction="none")
+    loss = loss_fxn(logits, targs, reduction="none")
     losses = {
         prepender: loss.mean().item()
     }

@@ -1,5 +1,6 @@
 from langpractice.utils.utils import *
 import unittest
+import torch.nn.functional as F
 
 class TestUtils(unittest.TestCase):
     def test_zipfian1(self):
@@ -155,6 +156,57 @@ class TestUtils(unittest.TestCase):
         accs = calc_accs(logits, targs,prepender="test")
         self.assertEqual(1, accs["test_acc"])
 
+    def test_calc_losses(self):
+        logits = torch.FloatTensor([[
+            [1,2,3,4],
+            [4,1,2,3],
+            [-1,2,-3,-4],
+            [-100,-5,100,0],
+        ]])
+        loss_fxn = F.cross_entropy
+        # 0 correct
+        targs = torch.LongTensor([[ 0, 1, 0, 0, ]])
+        targ_loss = loss_fxn(
+                logits.reshape(-1,logits.shape[-1]),
+                targs.reshape(-1),
+                reduction="none"
+        ).mean().item()
+        losses = calc_losses(
+                logits,
+                targs,
+                loss_fxn=loss_fxn,
+                prepender="test"
+        )
+        self.assertEqual(targ_loss, losses["test_loss"])
+        # 1 correct
+        targs = torch.LongTensor([[ 0, 0, 0, 0, ]])
+        targ_loss = loss_fxn(
+                logits.reshape(-1,logits.shape[-1]),
+                targs.reshape(-1),
+                reduction="none"
+        ).mean().item()
+        losses = calc_losses(
+                logits,
+                targs,
+                loss_fxn=loss_fxn,
+                prepender="test"
+        )
+        self.assertEqual(targ_loss, losses["test_loss"])
+        # all correct
+        targs = torch.LongTensor([[ 3,0,1,2 ]])
+        targ_loss = loss_fxn(
+                logits.reshape(-1,logits.shape[-1]),
+                targs.reshape(-1),
+                reduction="none"
+        ).mean().item()
+        losses = calc_losses(
+                logits,
+                targs,
+                loss_fxn=loss_fxn,
+                prepender="test"
+        )
+        self.assertEqual(targ_loss, losses["test_loss"])
+
     def test_calc_accs_categories(self):
         logits = torch.FloatTensor([
             [
@@ -179,28 +231,123 @@ class TestUtils(unittest.TestCase):
             [ 0, 1, 0, 0, ],
             [ 0, 1, 0, 0, ]
         ])
-        accs = calc_accs(logits, targs, categories,prepender="test")
-        self.assertEqual(0, accs["test_acc_0"])
-        self.assertEqual(0, accs["test_acc_1"])
-        self.assertEqual(0, accs["test_acc_3"])
+        accs = calc_accs(logits, targs, categories, prepender="test")
+        self.assertEqual(0, accs["test_accctg_0"])
+        self.assertEqual(0, accs["test_accctg_1"])
+        self.assertEqual(0, accs["test_accctg_3"])
         # 1 correct 1
         targs = torch.LongTensor([
             [ 0, 0, 0, 0, ],
             [ 0, 1, 0, 0, ]
         ])
         accs = calc_accs(logits, targs, categories,prepender="test")
-        self.assertEqual(0, accs["test_acc_0"])
-        self.assertEqual(1/2, accs["test_acc_1"])
-        self.assertEqual(0, accs["test_acc_3"])
+        self.assertEqual(0,   accs["test_accctg_0"])
+        self.assertEqual(1/2, accs["test_accctg_1"])
+        self.assertEqual(0,   accs["test_accctg_3"])
         # all correct 0
         targs = torch.LongTensor([
             [ 0, 0, 0, 2, ],
             [ 3, 1, 1, 0, ]
         ])
         accs = calc_accs(logits, targs, categories,prepender="test")
-        self.assertEqual(1, accs["test_acc_0"])
-        self.assertEqual(1/2, accs["test_acc_1"])
-        self.assertEqual(0, accs["test_acc_3"])
+        self.assertEqual(1,   accs["test_accctg_0"])
+        self.assertEqual(1/2, accs["test_accctg_1"])
+        self.assertEqual(0,   accs["test_accctg_3"])
+
+    def test_calc_losses_categories(self):
+        logits = torch.FloatTensor([
+            [
+                [1,2,3,4],
+                [4,1,2,3],
+                [-1,2,-3,-4],
+                [-100,-5,100,0],
+            ],
+            [
+                [1,2,3,4],
+                [4,1,2,3],
+                [-1,2,-3,-4],
+                [-100,-5,100,0],
+            ],
+        ])
+        categories = torch.LongTensor([
+            [ 1, 1, 3, 0, ],
+            [ 0, 3, 0, 3, ],
+        ])
+        loss_fxn = F.cross_entropy
+        # 0 correct
+        targs = torch.LongTensor([
+            [ 0, 1, 0, 0, ],
+            [ 0, 1, 0, 0, ]
+        ])
+        losses = calc_losses(logits, targs, categories, prepender="test")
+        idxs = categories.reshape(-1)==0
+        targ_loss = loss_fxn(
+                logits.reshape(-1,logits.shape[-1])[idxs],
+                targs.reshape(-1)[idxs],
+        ).item()
+        self.assertEqual(targ_loss, losses["test_lossctg_0"])
+
+        idxs = categories.reshape(-1)==1
+        targ_loss = loss_fxn(
+                logits.reshape(-1,logits.shape[-1])[idxs],
+                targs.reshape(-1)[idxs],
+        ).item()
+        self.assertEqual(targ_loss, losses["test_lossctg_1"])
+
+        idxs = categories.reshape(-1)==3
+        targ_loss = loss_fxn(
+                logits.reshape(-1,logits.shape[-1])[idxs],
+                targs.reshape(-1)[idxs],
+        ).item()
+        self.assertEqual(targ_loss, losses["test_lossctg_3"])
+        # 1 correct 1
+        targs = torch.LongTensor([
+            [ 0, 0, 0, 0, ],
+            [ 0, 1, 0, 0, ]
+        ])
+        losses = calc_losses(logits, targs, categories,prepender="test")
+        idxs = categories.reshape(-1)==0
+        targ_loss = loss_fxn(
+                logits.reshape(-1,logits.shape[-1])[idxs],
+                targs.reshape(-1)[idxs],
+        ).item()
+        self.assertEqual(targ_loss, losses["test_lossctg_0"])
+        idxs = categories.reshape(-1)==1
+        targ_loss = loss_fxn(
+                logits.reshape(-1,logits.shape[-1])[idxs],
+                targs.reshape(-1)[idxs],
+        ).item()
+        self.assertEqual(targ_loss, losses["test_lossctg_1"])
+        idxs = categories.reshape(-1)==3
+        targ_loss = loss_fxn(
+                logits.reshape(-1,logits.shape[-1])[idxs],
+                targs.reshape(-1)[idxs],
+        ).item()
+        self.assertEqual(targ_loss, losses["test_lossctg_3"])
+        # all correct 0
+        targs = torch.LongTensor([
+            [ 0, 0, 0, 2, ],
+            [ 3, 1, 1, 0, ]
+        ])
+        losses = calc_losses(logits, targs, categories,prepender="test")
+        idxs = categories.reshape(-1)==0
+        targ_loss = loss_fxn(
+                logits.reshape(-1,logits.shape[-1])[idxs],
+                targs.reshape(-1)[idxs],
+        ).item()
+        self.assertEqual(targ_loss, losses["test_lossctg_0"])
+        idxs = categories.reshape(-1)==1
+        targ_loss = loss_fxn(
+                logits.reshape(-1,logits.shape[-1])[idxs],
+                targs.reshape(-1)[idxs],
+        ).item()
+        self.assertEqual(targ_loss, losses["test_lossctg_1"])
+        idxs = categories.reshape(-1)==3
+        targ_loss = loss_fxn(
+                logits.reshape(-1,logits.shape[-1])[idxs],
+                targs.reshape(-1)[idxs],
+        ).item()
+        self.assertEqual(targ_loss, losses["test_lossctg_3"])
 
     def test_avg_over_dicts(self):
         vals = np.arange(10)
@@ -236,16 +383,20 @@ class TestUtils(unittest.TestCase):
         ])
         targ_loss = loss_fxn(langs[0].reshape(-1,4), targs.cuda().reshape(-1))
         targ_accs = calc_accs(langs[0].cpu(), targs, targs, prepender="test_lang")
-        loss, accs = calc_lang_loss_and_accs(
+        loss, losses, accs = calc_lang_loss_and_accs(
             langs,
             targs.reshape(-1),
             drops.reshape(-1),
-            loss_fxn,
+            loss_fxn=loss_fxn,
+            categories=targs.reshape(-1),
             prepender="test"
         )
         self.assertEqual(float(loss), float(targ_loss))
         for k in targ_accs.keys():
             self.assertEqual(targ_accs[k], accs[k])
+        targ_losses = calc_losses(langs[0].cpu(), targs, targs, prepender="test_lang")
+        for k in targ_losses.keys():
+            self.assertEqual(targ_losses[k], losses[k])
         # 3 correct
         targs = torch.LongTensor([
             [ 3, 1, 1, 0, ],
@@ -253,16 +404,20 @@ class TestUtils(unittest.TestCase):
         ])
         targ_loss = loss_fxn(langs[0].reshape(-1,4), targs.cuda().reshape(-1))
         targ_accs = calc_accs(langs[0].cpu(), targs, targs, prepender="test_lang")
-        loss, accs = calc_lang_loss_and_accs(
+        loss, losses, accs = calc_lang_loss_and_accs(
             langs,
             targs.reshape(-1),
             drops.reshape(-1),
-            loss_fxn,
+            loss_fxn=loss_fxn,
+            categories=targs.reshape(-1),
             prepender="test"
         )
         self.assertEqual(float(loss), float(targ_loss))
         for k in targ_accs.keys():
             self.assertEqual(targ_accs[k], accs[k])
+        targ_losses = calc_losses(langs[0].cpu(), targs, targs, prepender="test_lang")
+        for k in targ_losses.keys():
+            self.assertAlmostEqual(targ_losses[k], losses[k], places=4)
 
     def test_calc_lang_loss_and_accs_drops(self):
         loss_fxn = torch.nn.CrossEntropyLoss()
@@ -313,16 +468,25 @@ class TestUtils(unittest.TestCase):
             dropped_targs,
             prepender="test_lang"
         )
-        loss, accs = calc_lang_loss_and_accs(
+        targ_losses = calc_losses(
+            dropped_lang.cpu(),
+            dropped_targs,
+            dropped_targs,
+            prepender="test_lang"
+        )
+        loss, losses, accs = calc_lang_loss_and_accs(
             langs,
             targs.reshape(-1),
             drops.reshape(-1),
             loss_fxn,
+            categories=targs.reshape(-1),
             prepender="test"
         )
         self.assertEqual(float(loss), float(targ_loss))
         for k in targ_accs.keys():
             self.assertEqual(targ_accs[k], accs[k])
+        for k in targ_losses.keys():
+            self.assertEqual(targ_losses[k], losses[k])
         # 3 correct
         targs = torch.LongTensor([
             [ 3, 0, 1, 2, ],
@@ -342,16 +506,25 @@ class TestUtils(unittest.TestCase):
             dropped_targs,
             prepender="test_lang"
         )
-        loss, accs = calc_lang_loss_and_accs(
+        targ_losses = calc_losses(
+            dropped_lang.cpu(),
+            dropped_targs,
+            dropped_targs,
+            prepender="test_lang"
+        )
+        loss, losses, accs = calc_lang_loss_and_accs(
             langs,
             targs.reshape(-1),
             drops.reshape(-1),
             loss_fxn,
+            categories=targs.reshape(-1),
             prepender="test"
         )
         self.assertEqual(float(loss), float(targ_loss))
         for k in targ_accs.keys():
             self.assertEqual(targ_accs[k], accs[k])
+        for k in targ_losses.keys():
+            self.assertAlmostEqual(targ_losses[k], losses[k], places=4)
 
     def test_calc_actn_loss_and_accs(self):
         loss_fxn = torch.nn.CrossEntropyLoss()
@@ -448,23 +621,25 @@ class TestUtils(unittest.TestCase):
             [ 0, 1, 0, 0, ],
             [ 0, 1, 0, 0, ],
         ])
-        targ_loss, targ_accs = calc_lang_loss_and_accs(
+        targ_loss, _, targ_accs = calc_lang_loss_and_accs(
             preds,
             targs.reshape(-1),
             drops.reshape(-1),
             loss_fxn,
+            categories=targs.reshape(-1),
             prepender="test"
         )
-        loss, accs = get_loss_and_accs(
-            phase,
-            preds,
-            preds,
-            targs.reshape(-1),
-            targs.reshape(-1),
-            drops.reshape(-1),
-            n_targs.reshape(-1),
-            "test",
-            loss_fxn,
+        loss, losses, accs = get_loss_and_accs(
+            phase=phase,
+            actn_preds=preds,
+            lang_preds=preds,
+            actn_targs=targs.reshape(-1),
+            lang_targs=targs.reshape(-1),
+            drops=drops.reshape(-1),
+            n_targs=n_targs.reshape(-1),
+            n_items=targs.reshape(-1),
+            prepender="test",
+            loss_fxn=loss_fxn,
             lang_p=0.5
         )
 
@@ -476,26 +651,27 @@ class TestUtils(unittest.TestCase):
             [ 3, 1, 1, 0, ],
             [ 0, 0, 0, 0, ],
         ])
-        targ_loss, targ_accs = calc_lang_loss_and_accs(
+        targ_loss, _, targ_accs = calc_lang_loss_and_accs(
             preds,
             targs.reshape(-1),
             drops.reshape(-1),
             loss_fxn,
+            categories=targs.reshape(-1),
             prepender="test"
         )
-        loss, accs = get_loss_and_accs(
-            phase,
-            preds,
-            preds,
-            targs.reshape(-1),
-            targs.reshape(-1),
-            drops.reshape(-1),
-            n_targs.reshape(-1),
-            "test",
-            loss_fxn,
+        loss, losses, accs = get_loss_and_accs(
+            phase=phase,
+            actn_preds=preds,
+            lang_preds=preds,
+            actn_targs=targs.reshape(-1),
+            lang_targs=targs.reshape(-1),
+            drops=drops.reshape(-1),
+            n_targs=n_targs.reshape(-1),
+            n_items=targs.reshape(-1),
+            prepender="test",
+            loss_fxn=loss_fxn,
             lang_p=0.5
         )
-
         self.assertEqual(float(loss), float(targ_loss))
         for k in targ_accs.keys():
             self.assertEqual(targ_accs[k], accs[k])
@@ -537,16 +713,17 @@ class TestUtils(unittest.TestCase):
             loss_fxn,
             prepender="test"
         )
-        loss, accs = get_loss_and_accs(
-            phase,
-            preds,
-            preds,
-            targs.reshape(-1),
-            targs.reshape(-1),
-            drops.reshape(-1),
-            n_targs.reshape(-1),
-            "test",
-            loss_fxn,
+        loss, losses, accs = get_loss_and_accs(
+            phase=phase,
+            actn_preds=preds,
+            lang_preds=preds,
+            actn_targs=targs.reshape(-1),
+            lang_targs=targs.reshape(-1),
+            drops=drops.reshape(-1),
+            n_targs=n_targs.reshape(-1),
+            n_items=targs.reshape(-1),
+            prepender="test",
+            loss_fxn=loss_fxn,
             lang_p=0.5
         )
 
@@ -565,16 +742,17 @@ class TestUtils(unittest.TestCase):
             loss_fxn,
             prepender="test"
         )
-        loss, accs = get_loss_and_accs(
-            phase,
-            preds,
-            preds,
-            targs.reshape(-1),
-            targs.reshape(-1),
-            drops.reshape(-1),
-            n_targs.reshape(-1),
-            "test",
-            loss_fxn,
+        loss, losses, accs = get_loss_and_accs(
+            phase=phase,
+            actn_preds=preds,
+            lang_preds=preds,
+            actn_targs=targs.reshape(-1),
+            lang_targs=targs.reshape(-1),
+            drops=drops.reshape(-1),
+            n_targs=n_targs.reshape(-1),
+            n_items=targs.reshape(-1),
+            prepender="test",
+            loss_fxn=loss_fxn,
             lang_p=0.5
         )
 
@@ -613,11 +791,12 @@ class TestUtils(unittest.TestCase):
             [ 0, 1, 0, 0, ],
             [ 0, 1, 0, 0, ],
         ])
-        lang_targ_loss, lang_targ_accs = calc_lang_loss_and_accs(
+        lang_targ_loss, _, lang_targ_accs = calc_lang_loss_and_accs(
             langs,
             targs.reshape(-1),
             drops.reshape(-1),
             loss_fxn,
+            categories=targs.reshape(-1),
             prepender="test"
         )
         actn_targ_loss, actn_targ_accs = calc_actn_loss_and_accs(
@@ -629,16 +808,17 @@ class TestUtils(unittest.TestCase):
         )
         targ_loss = 0.5*lang_targ_loss + 0.5*actn_targ_loss
         targ_accs = {**lang_targ_accs, **actn_targ_accs}
-        loss, accs = get_loss_and_accs(
-            phase,
-            actns,
-            langs,
-            targs.reshape(-1),
-            targs.reshape(-1),
-            drops.reshape(-1),
-            n_targs.reshape(-1),
-            "test",
-            loss_fxn,
+        loss, losses, accs = get_loss_and_accs(
+            phase=phase,
+            actn_preds=actns,
+            lang_preds=langs,
+            actn_targs=targs.reshape(-1),
+            lang_targs=targs.reshape(-1),
+            drops=drops.reshape(-1),
+            n_targs=n_targs.reshape(-1),
+            n_items=targs.reshape(-1),
+            prepender="test",
+            loss_fxn=loss_fxn,
             lang_p=0.5
         )
 
@@ -650,11 +830,12 @@ class TestUtils(unittest.TestCase):
             [ 3, 1, 1, 0, ],
             [ 0, 0, 0, 0, ],
         ])
-        lang_targ_loss, lang_targ_accs = calc_lang_loss_and_accs(
+        lang_targ_loss, _, lang_targ_accs = calc_lang_loss_and_accs(
             langs,
             targs.reshape(-1),
             drops.reshape(-1),
             loss_fxn,
+            categories=targs.reshape(-1),
             prepender="test"
         )
         actn_targ_loss, actn_targ_accs = calc_actn_loss_and_accs(
@@ -666,16 +847,17 @@ class TestUtils(unittest.TestCase):
         )
         targ_loss = 0.5*lang_targ_loss + 0.5*actn_targ_loss
         targ_accs = {**lang_targ_accs, **actn_targ_accs}
-        loss, accs = get_loss_and_accs(
-            phase,
-            actns,
-            langs,
-            targs.reshape(-1),
-            targs.reshape(-1),
-            drops.reshape(-1),
-            n_targs.reshape(-1),
-            "test",
-            loss_fxn,
+        loss, losses, accs = get_loss_and_accs(
+            phase=phase,
+            actn_preds=actns,
+            lang_preds=langs,
+            actn_targs=targs.reshape(-1),
+            lang_targs=targs.reshape(-1),
+            drops=drops.reshape(-1),
+            n_targs=n_targs.reshape(-1),
+            n_items=targs.reshape(-1),
+            prepender="test",
+            loss_fxn=loss_fxn,
             lang_p=0.5
         )
 
