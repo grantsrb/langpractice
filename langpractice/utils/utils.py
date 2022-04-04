@@ -1,3 +1,4 @@
+import torch.nn.functional as F
 import numpy as np
 import torch
 import json
@@ -348,14 +349,15 @@ def get_lang_labels(n_items, n_targs, max_label, use_count_words):
     return labels
 
 def get_loss_and_accs(phase,
-                      logits,
-                      langs,
-                      actns,
-                      labels,
+                      actn_preds,
+                      lang_preds,
+                      actn_targs,
+                      lang_targs,
                       drops,
                       n_targs,
-                      prepender,
-                      loss_fxn,
+                      n_items,
+                      prepender="",
+                      loss_fxn=F.cross_entropy,
                       lang_p=0.5):
     """
     Calculates the loss and accuracies depending on the phase of
@@ -368,13 +370,13 @@ def get_loss_and_accs(phase,
     Args:
         phase: int - 0,1,or 2
             the phase of the training
-        logits: torch FloatTensor (B,S,A)
+        actn_preds: torch FloatTensor (B,S,A)
             action predictions
-        langs: sequence of torch FloatTensors [(B,S,L),(B,S,L),...]
+        lang_preds: sequence of torch FloatTensors [(B,S,L),(B,S,L),...]
             a list of language predictions
-        actns: torch LongTensor (B*S,)
+        actn_targs: torch LongTensor (B*S,)
             action labels
-        labels: torch LongTensor (B*S,)
+        lang_targs: torch LongTensor (B*S,)
             language labels
         drops: torch LongTensor (B*S,)
             1s denote steps in which the agent dropped an item, 0s
@@ -382,6 +384,8 @@ def get_loss_and_accs(phase,
         n_targs: torch LongTensor (B*S,)
             the number of target objects on the grid at this step
             of the episode
+        n_items: torch Tensor (B*S,)
+            the count of the items on the board
         loss_fxn: torch Module
             the loss function to calculate the loss. i.e.
             torch.nn.CrossEntropyLoss()
@@ -404,33 +408,35 @@ def get_loss_and_accs(phase,
     # Phase 2: lang and action labels at all steps in rollout
     loss = 0
     lang_accs = {}
+    lang_losses = {}
     if phase == 0 or phase == 2:
-        loss, lang_accs = calc_lang_loss_and_accs(
-            langs,
-            labels,
+        loss, lang_losses, lang_accs = calc_lang_loss_and_accs(
+            lang_preds,
+            lang_targs,
             drops,
-            loss_fxn,
-            prepender
+            loss_fxn=loss_fxn,
+            categories=n_items,
+            prepender=prepender
         )
     actn_accs = {}
     if phase == 1 or phase == 2:
         actn_loss, actn_accs = calc_actn_loss_and_accs(
-            logits,
-            actns,
+            actn_preds,
+            actn_targs,
             n_targs,
             loss_fxn,
             prepender
         )
         p = lang_p if phase == 2 else 0
         loss = p*loss + (1-p)*actn_loss
-    return loss, {**actn_accs, **lang_accs}
+    return loss, lang_losses, {**actn_accs, **lang_accs}
 
-def calc_actn_loss_and_accs(logits,actns,n_targs,loss_fxn,prepender):
+def calc_actn_loss_and_accs(logits,targs,n_targs,loss_fxn,prepender):
     """
     Args:
         logits: torch FloatTensor (B,S,A)
             action predictions
-        actns: torch LongTensor (B*S,)
+        targs: torch LongTensor (B*S,)
             action labels
         n_targs: torch LongTensor (B*S,)
             the number of target objects on the grid at this step
@@ -449,21 +455,26 @@ def calc_actn_loss_and_accs(logits,actns,n_targs,loss_fxn,prepender):
                 accuracies
     """
     logits = logits.reshape(-1, logits.shape[-1])
-    actns = actns.to(DEVICE)
-    loss = loss_fxn(logits, actns)
+    targs = targs.to(DEVICE)
+    loss = loss_fxn(logits, targs)
     with torch.no_grad():
         actn_accs = calc_accs( # accs is a dict of floats
             logits=logits,
-            targs=actns,
+            targs=targs,
             categories=n_targs,
             prepender=prepender+"_actn"
         )
     return loss, actn_accs
 
-def calc_lang_loss_and_accs(langs,labels,drops,loss_fxn,prepender=""):
+def calc_lang_loss_and_accs(preds,
+                            labels,
+                            drops,
+                            loss_fxn,
+                            categories,
+                            prepender=""):
     """
     Args:
-        langs: sequence of torch FloatTensors [(B,S,L),(B,S,L),...]
+        preds: sequence of torch FloatTensors [(B,S,L),(B,S,L),...]
             a list of language predictions
         labels: torch LongTensor (B*S,)
             language labels
@@ -473,10 +484,18 @@ def calc_lang_loss_and_accs(langs,labels,drops,loss_fxn,prepender=""):
         loss_fxn: torch Module
             the loss function to calculate the loss. i.e.
             torch.nn.CrossEntropyLoss()
+        categories: torch long tensor (B, N) or None
+            if None, this value is ignored. Otherwise it specifies
+            categories for accuracy calculations.
         prepender: str
             a string to prepend to all keys in the accs dict
     Returns:
         loss: torch float tensor (1,)
+        losses: dict
+            keys: str
+                loss types
+            vals: float
+                losses
         accs: dict
             keys: str
                 accuracy types
@@ -484,11 +503,12 @@ def calc_lang_loss_and_accs(langs,labels,drops,loss_fxn,prepender=""):
                 accuracies
     """
     accs_array = []
+    losses_array = []
     idxs = drops==1
-    categories = labels[idxs]
-    labels = categories.to(DEVICE)
+    categories = categories[idxs]
+    labels = labels[idxs].to(DEVICE)
     loss = 0
-    for lang in langs:
+    for lang in preds:
         lang = lang.reshape(-1, lang.shape[-1])
         lang = lang[idxs]
         loss += loss_fxn(lang, labels)
@@ -500,8 +520,17 @@ def calc_lang_loss_and_accs(langs,labels,drops,loss_fxn,prepender=""):
                 prepender=prepender+"_lang"
             )
             accs_array.append(accs)
-    lang_accs = avg_over_dicts(accs_array)
-    return loss, lang_accs
+
+            losses = calc_losses( # accs is a dict of floats
+                logits=lang,
+                targs=labels,
+                categories=categories,
+                prepender=prepender+"_lang"
+            )
+            losses_array.append(losses)
+    losses = avg_over_dicts(losses_array)
+    accs = avg_over_dicts(accs_array)
+    return loss, losses, accs
 
 def avg_over_dicts(dicts_array):
     """
@@ -560,34 +589,89 @@ def calc_accs(logits, targs, categories=None, prepender=""):
                     will be the average accuracy over that
                     particular category.
     """
+    if prepender!="" and prepender[-1]!="_": prepender = prepender+"_"
+    prepender = prepender + "acc"
     logits = logits.reshape(-1, logits.shape[-1])
     try:
         argmaxes = torch.argmax(logits, dim=-1).reshape(-1)
     except:
         print("logits:", logits)
-        return { prepender + "_acc": 0 }
+        return { prepender: 0 }
     targs = targs.reshape(-1)
-    acc = (argmaxes.long()==targs.long()).float().mean()
+    acc = (argmaxes.long()==targs.long()).float()
     accs = {
-        prepender + "_acc": acc.item()
+        prepender: acc.mean().item()
     }
     if len(argmaxes) == 0: return accs
+    pre = prepender + "lbl_"
+    targ_types = {*targs.cpu().data.numpy()}
+    for t in targ_types:
+        idxs = targs==t
+        if idxs.float().sum() == 0: continue
+        accs[pre+str(t)] = acc[idxs].mean().item()
     if type(categories) == torch.Tensor: # (B, N)
         categories = categories.reshape(-1).data.long()
+        pre = prepender + "ctg_"
         cats = {*categories.numpy()}
         for cat in cats:
             idxs = categories==cat
             if idxs.float().sum() <= 0: continue
-            try:
-                argmxs = argmaxes[idxs]
-            except:
-                print("logits:", logits.shape)
-                print("argmaxes:", argmaxes.shape)
-                print("categs:", categories.shape)
-                print("idxs sum:", idxs.float().sum())
-                assert False
-            trgs = targs[idxs]
-            acc = (argmxs.long()==trgs.long()).float().mean()
-            accs[prepender+"_acc_"+str(cat)] = acc.item()
+            accs[pre+str(cat)] = acc[idxs].mean().item()
     return accs
+
+def calc_losses(logits,
+                targs,
+                categories=None,
+                prepender="",
+                loss_fxn=F.cross_entropy):
+    """
+    Calculates the average accuracy over the batch for each possible
+    category
+
+    Args:
+        logits: torch float tensor (B, N, K)
+            the model predictions. the last dimension must be the
+            same number of dimensions as possible target values.
+        targs: torch long tensor (B, N)
+            the targets for the predictions
+        categories: torch long tensor (B, N) or None
+            if None, this value is ignored. Otherwise it specifies
+            categories for accuracy calculations.
+        prepender: str
+            a string to prepend to all keys in the accs dict
+    Returns:
+        accs: dict
+            keys: str
+                <prepender>_acc: float
+                    the average accuracy over all categories
+                <prepender>_acc_<category>: float
+                    the average accuracy over this particular
+                    category. for example, if one of the categories
+                    is named 1, the key will be "1" and the value
+                    will be the average accuracy over that
+                    particular category.
+    """
+    if prepender!="" and prepender[-1]!="_": prepender = prepender+"_" 
+    prepender = prepender + "loss"
+    logits = logits.reshape(-1, logits.shape[-1])
+    targs = targs.reshape(-1)
+    loss = loss_fxn(logits, targs, reduction="none")
+    losses = {
+        prepender: loss.mean().item()
+    }
+    pre = prepender + "lbl_"
+    targ_types = {*targs.cpu().data.numpy()}
+    for t in targ_types:
+        idxs = targs==t
+        if idxs.float().sum() == 0: continue
+        losses[pre+str(t)] = loss[idxs].mean().item()
+    if type(categories) == torch.Tensor: # (B, N)
+        categories = categories.reshape(-1).cpu().data.long()
+        pre = prepender + "ctg_"
+        cats = {*categories.numpy()}
+        for cat in cats:
+            idxs = categories==cat
+            if idxs.float().sum() <= 0: continue
+            losses[pre+str(cat)] = loss[idxs].mean().item()
+    return losses
 

@@ -391,7 +391,7 @@ class Trainer:
 
             ## Testing
             ##############
-            if self.hyps["exp_name"]=="test" or self.hyps["exp_name"]=="deleteme":
+            if self.hyps["exp_name"]=="test":
                 grabs = data["grabs"]
                 print("train grabs:")
                 for row in range(len(drops)):
@@ -450,15 +450,16 @@ class Trainer:
                 dones.to(DEVICE)
             )
 
-            loss,accs = get_loss_and_accs(
+            loss, losses, accs = get_loss_and_accs(
                 phase=self.phase,
                 loss_fxn=self.loss_fxn,
-                logits=logits,
-                langs=langs,
-                actns=actns.flatten(),
-                labels=labels.flatten(),
+                actn_preds=logits,
+                lang_preds=langs,
+                actn_targs=actns.flatten(),
+                lang_targs=labels.flatten(),
                 drops=drops.flatten(),
                 n_targs=n_targs.flatten(),
+                n_items=n_items.flatten(),
                 prepender="train",
                 lang_p=self.hyps["lang_p"]
             )

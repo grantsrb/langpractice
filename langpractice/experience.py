@@ -861,8 +861,8 @@ class ValidationRunner(Runner):
             self.save_lang_data(
                 data, lang_labels, drops, epoch, self.phase
             )
-            self.save_ep_data(data, epoch, self.phase)
-
+            self.save_actn_data(data, epoch, self.phase)
+            self.save_epoch_data(data, epoch, self.phase, n_targs)
 
     def save_lang_data(self,
                        data,
@@ -937,11 +937,11 @@ class ValidationRunner(Runner):
             mode="a"
         )
 
-    def save_ep_data(self,
-                   data,
-                   epoch,
-                   phase,
-                   save_name="validation_stats.csv"):
+    def save_actn_data(self,
+                       data,
+                       epoch,
+                       phase,
+                       save_name="validation_stats.csv"):
         """
         Saves the stats at the end of each episode collected from the
         rollouts. Saves the data as a dataframe called `save_name`
@@ -962,6 +962,55 @@ class ValidationRunner(Runner):
         df = pd.DataFrame(inpts)
         df["epoch"] = epoch
         df["phase"] = self.phase
+        path = os.path.join(
+            self.hyps["save_folder"],
+            save_name
+        )
+        header = not os.path.exists(path)
+        df.to_csv(
+            path,
+            sep=",",
+            header=header,
+            mode="a"
+        )
+
+    def save_epoch_data(self,
+                       data,
+                       epoch,
+                       phase,
+                       n_targs,
+                       save_name="epoch_stats.csv"):
+        """
+        Saves the loss and acc stats averaged over all episodes in the
+        validation for a given n_target value. Saves the data as a
+        dataframe called `save_name` within the model's save_folder.
+
+        Args:
+            data: dict
+            epoch: int
+            phase: int
+            n_targs: int
+                the number of targets that this data pertains to
+            save_name: str
+        """
+        with torch.no_grad():
+            _,losses,accs = get_loss_and_accs(
+                phase=phase,
+                actn_preds=data["logits"],
+                lang_preds=data["langs"],
+                actn_targs=data["actns"],
+                lang_targs=data["labels"],
+                drops=data["drops"],
+                n_targs=data["n_targs"],
+                n_items=data["n_items"],
+                prepender="",
+                loss_fxn=self.loss_fxn
+            )
+        inpts = {**losses, **accs}
+        df = pd.DataFrame(inpts)
+        df["epoch"] = epoch
+        df["phase"] = self.phase
+        df["n_targs"] = n_targs
         path = os.path.join(
             self.hyps["save_folder"],
             save_name
