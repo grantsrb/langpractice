@@ -1,3 +1,4 @@
+import time
 import pandas as pd
 import os
 import torch
@@ -1076,11 +1077,22 @@ class ValidationRunner(Runner):
             data["ep_idx"].append(self.ep_idx)
             if self.hyps["render"]:
                 self.env.render()
+                print("Use count words:", self.hyps["use_count_words"],
+                    "-- Lang size:", self.hyps["lang_size"],
+                    "-- N_Targs:", info["n_targs"],
+                    "-- N_Items:", info["n_items"]
+                )
+                targ = get_lang_labels(
+                    torch.LongTensor([info["n_items"]]),
+                    torch.LongTensor([info["n_targs"]]),
+                    max_label=self.hyps["lang_size"]-1,
+                    use_count_words=self.hyps["use_count_words"]
+                ).item()
                 print(
                     "Lang (pred, targ):",
                     torch.argmax(lang.squeeze().cpu().data).item(),
                     "--",
-                    info["n_items"]
+                    targ
                 )
                 if done:
                     print(
@@ -1090,6 +1102,7 @@ class ValidationRunner(Runner):
                         info["n_targs"]
                     )
                     print()
+                time.sleep(1)
             if done:
                 model.reset(1)
                 ep_count += 1
