@@ -675,3 +675,16 @@ def calc_losses(logits,
             losses[pre+str(cat)] = loss[idxs].mean().item()
     return losses
 
+def get_transformer_fwd_mask(s):
+    """
+    Generates a mask that looks like this:
+        0, -inf, -inf
+        0,   0,  -inf
+        0,   0,  0
+
+    Args:
+        s: int
+            the size of each sidelength of the mask
+    """
+    return torch.triu(torch.ones(s,s)*float("-inf"), diagonal=1)
+
