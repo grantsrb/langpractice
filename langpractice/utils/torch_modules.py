@@ -1,3 +1,4 @@
+import math
 import torch.nn as nn
 import torch
 
@@ -74,3 +75,30 @@ class GaussianNoise(nn.Module):
         return s.format(self.std, self.trainable,
                         self.adapt, self.momentum)
 
+class PositionalEncoding(nn.Module):
+    """
+    Taken from pytorch tutorial. A simple positonal encoding taken from
+    vaswani et al.
+    """
+    def __init__(self, d_model, dropout= 0.1, max_len= 5000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
+        )
+        pe = torch.zeros(1, max_len, d_model)
+        pe[0, :, 0::2] = torch.sin(position * div_term)
+        pe[0, :, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        """
+        Args:
+            x: Tensor, shape [batch_size, seq_len, embedding_dim]
+        Returns:
+            enc: Tensor, shape [batch_size, seq_len, embedding_dim]
+        """
+        x = x + self.pe[:,:x.size(1)]
+        return self.dropout(x)
