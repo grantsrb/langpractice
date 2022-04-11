@@ -1,5 +1,4 @@
 import torch
-from skimage.color import rgb2grey
 import numpy as np
 import torchvision.transforms as T
 
@@ -18,12 +17,6 @@ def pong_prep(pic):
     pic[pic != 0] = 1 # everything else (paddles, ball) just set to 1
     return pic[None]
 
-def breakout_prep(pic):
-    pic = pic[35:195,8:-8] # crop
-    pic = pic[::2,::2,0] # downsample by factor of 2
-    pic = rgb2grey(pic)
-    return pic[None]
-
 def snake_prep(pic):
     new_pic = np.zeros(pic.shape[:2],dtype=np.float32)
     new_pic[:,:][pic[:,:,0]==1] = 1
@@ -34,12 +27,12 @@ def snake_prep(pic):
     return new_pic[None]
 
 color_jitter = T.ColorJitter(
-    brightness=.5,
     hue=.3,
-    saturation=.5,
-    contrast=.5
+    saturation=.5
+    #brightness=.1
+    #contrast=.1
 )
-gauss_blur = T.RandomApply([T.GaussianBlur((5,5),sigma=0.01)],p=.5)
+gauss_blur = T.RandomApply([T.GaussianBlur((5,5),sigma=0.1)],p=1)
 distort = T.RandomPerspective(distortion_scale=.6, p=0.6)
 invert_color = T.RandomInvert()
 # trans = (horizontal shift, vertical shift)

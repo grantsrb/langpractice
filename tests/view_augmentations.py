@@ -1,7 +1,9 @@
-from langpractice.preprocessing import sample_augmentation 
+from langpractice.preprocessors import sample_augmentation 
 from gordongames.oracles import GordonOracle
 import gym
 import gordongames
+import torch
+import matplotlib.pyplot as plt
 
 if __name__=="__main__":
     env_type = "gordongames-v1"
@@ -11,7 +13,15 @@ if __name__=="__main__":
     while True:
         actn = oracle(env)
         obs, rew, done, info = env.step(actn)
-        aug = sample_augmentation(obs[None].transpose(0,3,1,2))
-        plt.imshow(aug.transpose(0,2,3,1))
+        print("mean before:", obs.mean())
+        aug = sample_augmentation(torch.FloatTensor(obs[None]))
+        print("mean after:", aug.mean())
+        plt.imshow(aug.numpy().squeeze())
         plt.show()
+        if done:
+            obs = env.reset()
+            aug = sample_augmentation(torch.FloatTensor(obs[None]))
+            plt.imshow(aug.numpy().squeeze())
+            plt.show()
+
 

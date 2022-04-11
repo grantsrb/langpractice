@@ -1,13 +1,8 @@
 numpy
 torch
 tqdm
-psutil
 h5py
-scikit-image
-opencv-python
 pandas
 gym
-mlagents
-mlagents_envs
-gym_unity
+torchvision
 -e git+git://github.com/grantsrb/gordongames.git@master#egg=gordongames

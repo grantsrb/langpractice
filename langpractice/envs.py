@@ -6,10 +6,6 @@ from langpractice.preprocessors import *
 import time
 from langpractice.utils.utils import try_key
 import torch.nn.functional as F
-from mlagents_envs.environment import UnityEnvironment
-from gym_unity.envs import UnityToGymWrapper
-from mlagents_envs.side_channel.engine_configuration_channel import EngineConfigurationChannel
-from mlagents_envs.side_channel.environment_parameters_channel import EnvironmentParametersChannel
 
 try:
     import gordongames
@@ -48,30 +44,20 @@ class SequentialEnvironment:
         self.preprocessor = globals()[preprocessor]
         self.seed = time.time() if seed is None else seed
 
-        try:
-            if "gordongames" in env_type or "nake" in env_type:
-                kwargs["env_type"] = env_type
-                self.env = gym.make(env_type, **kwargs)
-            else:
-                self.env = gym.make(env_type)
-            self.env.seed(self.seed)
-            self.is_gym = True
-            self._raw_shape = self.env.reset().shape
-            self._shape = self.reset().shape
-            self.action_space = self.env.action_space
-            if hasattr(self.action_space, "n"):
-                self.actn_size = self.env.action_space.n
-            else:
-                self.actn_size = self.env.action_space.shape[0]
-        except:
-            self.env = self.make_unity_env(env_type, seed=self.seed,
-                                                **kwargs)
-            self.is_gym = False
-            self._raw_shape = self.env.reset()[0].shape
-            self._shape = self.reset().shape
-            self.action_space = self.env.action_space
-            self.actn_size = None
-            raise NotImplemented
+        if "gordongames" in env_type or "nake" in env_type:
+            kwargs["env_type"] = env_type
+            self.env = gym.make(env_type, **kwargs)
+        else:
+            self.env = gym.make(env_type)
+        self.env.seed(self.seed)
+        self.is_gym = True
+        self._raw_shape = self.env.reset().shape
+        self._shape = self.reset().shape
+        self.action_space = self.env.action_space
+        if hasattr(self.action_space, "n"):
+            self.actn_size = self.env.action_space.n
+        else:
+            self.actn_size = self.env.action_space.shape[0]
 
     @property
     def raw_shape(self):
@@ -80,37 +66,6 @@ class SequentialEnvironment:
     @property
     def shape(self):
         return self._shape
-
-    def make_unity_env(self, path, float_params=None, time_scale=1,
-                                                      seed=time.time(),
-                                                      **kwargs):
-        """
-        creates a gym environment from a unity game
-
-        env_type: str
-            the path to the game
-        float_params: dict or None
-            this should be a dict of argument settings for the unity
-            environment
-            keys: varies by environment
-        time_scale: float
-            argument to set Unity's time scale. This applies less to
-            gym wrapped versions of Unity Environments, I believe..
-            but I'm not sure
-        seed: int
-            the seed for randomness
-        """
-        path = os.path.expanduser(path)
-        channel = EngineConfigurationChannel()
-        env_channel = EnvironmentParametersChannel()
-        env = UnityEnvironment(file_name=path,
-                               side_channels=[channel,env_channel],
-                               seed=seed)
-        channel.set_configuration_parameters(time_scale = 1)
-        env_channel.set_float_parameter("validation", 0)
-        env_channel.set_float_parameter("egoCentered", 0)
-        env = UnityToGymWrapper(env, allow_multiple_obs=True)
-        return env
 
     def prep_obs(self, obs):
         """

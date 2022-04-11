@@ -12,7 +12,6 @@ from tqdm import tqdm
 import math
 from queue import Queue
 from collections import deque
-import psutil
 import json
 import langpractice.utils.save_io as io
 import langpractice.utils.utils as utils
