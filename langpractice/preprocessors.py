@@ -1,5 +1,7 @@
+import torch
 from skimage.color import rgb2grey
 import numpy as np
+import torchvision.transforms as T
 
 def normalize_prep(pic):
     new_pic = 3*(pic - 255/2)/(255/2)
@@ -30,3 +32,30 @@ def snake_prep(pic):
     new_pic[:,:][pic[:,:,2]==255] = .33
     pic = new_pic
     return new_pic[None]
+
+color_jitter = T.ColorJitter(
+    brightness=.5,
+    hue=.3,
+    saturation=.5,
+    contrast=.5
+)
+gauss_blur = T.RandomApply([T.GaussianBlur((5,5),sigma=0.01)],p=.5)
+distort = T.RandomPerspective(distortion_scale=.6, p=0.6)
+invert_color = T.RandomInvert()
+# trans = (horizontal shift, vertical shift)
+affine = T.RandomAffine(180, translate=(.03,0), scale=(.5,1))
+pipeline = torch.nn.Sequential(
+    color_jitter,
+    gauss_blur,
+    affine,
+    distort,
+    invert_color,
+)
+def sample_augmentation(imgs):
+    """
+    Samples an augmentation on the argued image(s).
+
+    Args:
+        imgs: torch tensor (..., C, H, W)
+    """
+    return pipeline(imgs)

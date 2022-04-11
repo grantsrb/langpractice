@@ -32,6 +32,8 @@ class Model(torch.nn.Module):
         n_heads=8,
         n_layers=3,
         seq_len=64,
+        max_ctx_len=None,
+        dino=False,
         *args, **kwargs
     ):
         """
@@ -76,6 +78,11 @@ class Model(torch.nn.Module):
                 the number of transformer layers
             seq_len: int
                 an upper bound on the sequence length
+            max_ctx_len: int
+                an upper bound on the context length for transformers
+            dino: bool
+                if true, the memory units of the network will be trained
+                using the DINO self distillation method.
         """
         super().__init__()
         self.inpt_shape = inpt_shape
@@ -89,12 +96,17 @@ class Model(torch.nn.Module):
         self.feat_drop_p = feat_drop_p
         self.drop_p = drop_p
         self.n_lang_denses = n_lang_denses
-        self._trn_whls = nn.Parameter(torch.ones(1), requires_grad=False)
+        self._trn_whls = nn.Parameter(torch.ones(1),requires_grad=False)
         self.lstm_lang_first = lstm_lang_first
         self.n_lstms = 1
         self.n_heads = n_heads
         self.n_layers = n_layers
         self.seq_len = seq_len
+        if max_ctx_len is None: max_ctx_len = seq_len
+        self.max_ctx_len = max(max_ctx_len, seq_len)
+        self.dino = dino
+        if self.dino:
+            self.sim_proj = nn.Linear(self.h_size, self.h_size)
 
     @property
     def is_cuda(self):
@@ -257,9 +269,17 @@ class TestModel(Model):
             return self.step(x)
         else:
             # Action
-            actn = torch.ones(*x.shape[:2], self.actn_size, requires_grad=True).float()
+            actn = torch.ones(
+                *x.shape[:2],
+                self.actn_size,
+                requires_grad=True
+            ).float()
             # Language
-            lang = torch.ones(*x.shape[:2], self.lang_size, requires_grad=True).float()
+            lang = torch.ones(
+                *x.shape[:2],
+                self.lang_size,
+                requires_grad=True
+            ).float()
             if x.is_cuda:
                 actn = actn.cuda()
                 lang = lang.cuda()
@@ -271,13 +291,18 @@ class TestModel(Model):
             x: torch Float Tensor (B, C, H, W)
         """
         x = x.reshape(len(x), -1)
-        actn = torch.ones((x.shape[0], self.actn_size), requires_grad=True).float()
-        lang = torch.ones((x.shape[0], self.lang_size), requires_grad=True).float()
+        actn = torch.ones(
+            (x.shape[0], self.actn_size),
+            requires_grad=True
+        ).float()
+        lang = torch.ones(
+            (x.shape[0], self.lang_size),
+            requires_grad=True
+        ).float()
         if x.is_cuda:
             actn = actn.cuda()
             lang = lang.cuda()
         return actn*x.sum(), (lang*x.sum(),)
-
 
 class RandomModel(Model):
     def __init__(self, *args, **kwargs):
@@ -504,7 +529,6 @@ class SimpleLSTM(Model):
                 nn.Linear(self.h_size, self.actn_size),
             )
 
-
         # Lang Dense
         self.lang_denses = nn.ModuleList([])
         for i in range(self.n_lang_denses):
@@ -720,10 +744,10 @@ class Transformer(Model):
         self.h = None
         self.c = None
         self.reset(batch_size=1)
-        max_seq_len = 128
+        s = max(self.max_ctx_len, 3*self.seq_len)
         self.register_buffer(
             "fwd_mask",
-            get_transformer_fwd_mask(s=max_seq_len)
+            get_transformer_fwd_mask(s=s)
         )
 
     def reset(self, batch_size=1):
@@ -736,7 +760,7 @@ class Transformer(Model):
         Returns:
             None
         """
-        self.prev_hs = collections.deque(maxlen=self.seq_len)
+        self.prev_hs = []
 
     def partial_reset(self, dones):
         """
@@ -778,8 +802,11 @@ class Transformer(Model):
         fx = self.features(x)
         fx = fx.reshape(len(x), -1) # (B, N)
         fx = self.proj(fx)
-        self.prev_hs.append(fx)
-        encs = torch.stack(list(self.prev_hs), dim=1)
+        self.prev_hs.append(fx[:,None])
+        if self.max_ctx_len and len(self.prev_hs) > self.max_ctx_len:
+            self.prev_hs = self.prev_hs[-self.max_ctx_len:]
+        encs = torch.cat(self.prev_hs, dim=1)
+        self.prev_hs[-1] = self.prev_hs[-1].detach().data
         encs = self.pos_enc(encs)
         slen = encs.shape[1]
         encs = self.encoder( encs, self.fwd_mask[:slen,:slen] )
@@ -800,15 +827,244 @@ class Transformer(Model):
             langs: torch FloatTensor (N,B,S,L)
         """
         seq_len = x.shape[1]
-        self.prev_hs = collections.deque(maxlen=self.seq_len)
         b,s,c,h,w = x.shape
         fx = self.features(x.reshape(-1,c,h,w)).reshape(b*s,-1)
         fx = self.proj(fx).reshape(b,s,-1)
-        encs = self.pos_enc(fx)
-        encs = self.encoder( encs, self.fwd_mask[:s,:s] )
+        if self.max_ctx_len is None or self.max_ctx_len <= self.seq_len:
+            encs = fx
+        else:
+            encs = torch.cat([*self.prev_hs, fx], dim=1) # cat along s
+            self.prev_hs = [*self.prev_hs, fx.detach().data]
+            if encs.shape[1] > self.max_ctx_len:
+                encs = encs[:,-self.max_ctx_len:]
+                idx = self.max_ctx_len//self.seq_len
+                self.prev_hs = self.prev_hs[-idx:]
+        encs = self.pos_enc(encs)
+        m = encs.shape[1]
+        encs = self.encoder( encs, self.fwd_mask[:m,:m] )[:,-s:]
         if self.lnorm:
             encs = self.layernorm(encs)
         encs = encs.reshape(b*s,-1)
+        actns = self.actn_dense(encs).reshape(b,s,-1)
+        langs = []
+        for dense in self.lang_denses:
+            langs.append(dense(encs).reshape(b,s,-1))
+        return actns, torch.stack(langs,dim=0)
+
+class MemTransformer(Model):
+    """
+    This model prepends a previous memory vector to the context in
+    attempt to provide a running memory. It also appends a [CLS]
+    embedding to the context in order to encode a new memory vector.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        assert self.bnorm == False,\
+            "bnorm must be False. it does not work with Recurrence!"
+
+        # Convs
+        cnn = SimpleCNN(*args, **kwargs)
+        self.shapes = cnn.shapes
+        self.features = cnn.features
+
+        # Linear Projection
+        self.flat_size = cnn.flat_size
+        self.feat_proj = nn.Linear(self.flat_size, self.h_size)
+
+        # Memory
+        self.cls = nn.Parameter(
+            torch.randn(1,1,self.h_size)/float(np.sqrt(self.h_size))
+        )
+
+        # Transformer
+        self.pos_enc = PositionalEncoding(
+            self.h_size,
+            self.feat_drop_p
+        )
+        enc_layer = nn.TransformerEncoderLayer(
+            self.h_size,
+            self.n_heads,
+            4*self.h_size,
+            self.feat_drop_p,
+            norm_first=True,
+            batch_first=True
+        )
+        self.encoder = nn.TransformerEncoder(
+            enc_layer,
+            self.n_layers
+        )
+
+        # Action Dense
+        if self.drop_p > 0:
+            self.actn_dense = nn.Sequential(
+                nn.Dropout(self.drop_p),
+                GaussianNoise(self.dense_noise),
+                nn.ReLU(),
+                nn.Linear(self.h_size, self.actn_size),
+            )
+        else:
+            self.actn_dense = nn.Sequential(
+                GaussianNoise(self.dense_noise),
+                nn.ReLU(),
+                nn.Linear(self.h_size, self.actn_size),
+            )
+
+        # Lang Dense
+        self.lang_denses = nn.ModuleList([])
+        for i in range(self.n_lang_denses):
+            if self.drop_p > 0:
+                self.lang_denses.append(nn.Sequential(
+                    nn.ReLU(),
+                    nn.Linear(self.h_size, self.h_size),
+                    nn.Dropout(self.drop_p),
+                    nn.ReLU(),
+                    nn.Linear(self.h_size, self.lang_size),
+                ))
+            else:
+                self.lang_denses.append(nn.Sequential(
+                    nn.ReLU(),
+                    nn.Linear(self.h_size, self.h_size),
+                    nn.ReLU(),
+                    nn.Linear(self.h_size, self.lang_size),
+                ))
+
+        print("lang_denses:", self.n_lang_denses)
+        # Memory
+        if self.lnorm:
+            self.layernorm = nn.LayerNorm(self.h_size)
+        self.h = None
+        self.c = None
+        self.reset(1)
+        s = max(self.max_ctx_len, 3*self.seq_len)
+        self.register_buffer(
+            "fwd_mask",
+            get_transformer_fwd_mask(s=s+2)
+        )
+
+    def reset(self, batch_size=1):
+        """
+        Resets the memory vectors
+
+        Args:
+            batch_size: int
+                the size of the incoming batches
+        Returns:
+            None
+        """
+        self.h = torch.zeros(batch_size,1,self.h_size)
+        self.prev_hs = [self.h]
+        self.prev_ctx = None
+        self.prev_feats = []
+        if self.is_cuda: self.h = self.h.to(self.get_device())
+            
+
+    def partial_reset(self, dones):
+        """
+        Uses the done signals to reset appropriate parts of the h and
+        c vectors.
+
+        Args:
+            dones: torch LongTensor (B,)
+                h and c are zeroed along any row in which dones[row]==1
+        Returns:
+            h: torch FloatTensor (B, H)
+            c: torch FloatTensor (B, H)
+        """
+        mask = (1-dones).unsqueeze(-1)
+        h = self.h*mask
+        return h
+
+    def reset_to_step(self, step=0):
+        """
+        This function resets all recurrent states in a model to the
+        previous recurrent state just after the argued step. So, the
+        model takes the 0th step then the 0th h and c vectors are the
+        h and c vectors just after the model took this step.
+
+        Args:
+            step: int
+                the index of the step to revert the recurrence to
+        """
+        pass
+
+    def step(self, x, *args, **kwargs):
+        """
+        Performs a single step rather than a complete sequence of steps
+
+        Args:
+            x: torch FloatTensor (B, C, H, W)
+        Returns:
+            actn: torch Float Tensor (B, K)
+            langs: list of torch Float Tensor (B, L)
+        """
+        fx = self.features(x)
+        fx = fx.reshape(len(x), -1) # (B, N)
+        fx = self.feat_proj(fx)
+
+        self.prev_feats.append(fx[:,None])
+        if self.max_ctx_len and len(self.prev_feats) > self.max_ctx_len:
+            self.prev_feats = self.prev_feats[-self.max_ctx_len:]
+        encs = torch.cat(
+            [self.h, *self.prev_feats, self.cls.repeat((len(fx),1,1))],
+            dim=1
+        )
+        self.prev_feats[-1] = self.prev_feats[-1].detach().data
+        encs = self.pos_enc(encs)
+        slen = encs.shape[1]
+        encs = self.encoder( encs, self.fwd_mask[:slen,:slen] )
+        if self.lnorm:
+            encs = self.layernorm(encs[:,-2:])
+        self.h = encs[:,-1:]
+        self.prev_hs.append(self.h.detach().data)
+        encs = encs[:,0]
+        langs = []
+        for dense in self.lang_denses:
+            langs.append(dense(encs))
+        return self.actn_dense(encs), langs
+
+    def forward(self, x, *args, **kwargs):
+        """
+        Args:
+            x: torch FloatTensor (B, S, C, H, W)
+        Returns:
+            actns: torch FloatTensor (B, S, N)
+                N is equivalent to self.actn_size
+            langs: torch FloatTensor (N,B,S,L)
+        """
+        #device = self.get_device()
+        #if device == -1: self.h = self.h.cpu()
+        #else: self.h = self.h.to(device)
+        seq_len = x.shape[1]
+        b,s,c,h,w = x.shape
+        fx = self.features(x.reshape(-1,c,h,w)).reshape(b*s,-1)
+        fx = self.feat_proj(fx).reshape(b,s,-1)
+
+        if self.max_ctx_len <= self.seq_len:
+            encs = torch.cat(
+                [self.h, fx, self.cls.repeat((len(fx),1,1))],
+                dim=1
+            )
+        else:
+            if self.prev_ctx is not None:
+                arr = [
+                  self.h,self.prev_ctx,fx,self.cls.repeat((len(fx),1,1))
+                ]
+            else: arr = [ self.h, fx, self.cls.repeat((len(fx),1,1)) ]
+            encs = torch.cat( arr, dim=1 ) # cat along s
+            self.prev_ctx = encs[:,1:-1].detach().data
+            if self.prev_ctx.shape[1] > self.max_ctx_len - self.seq_len:
+                idx = -self.max_ctx_len+self.seq_len
+                self.prev_ctx = self.prev_ctx[:,idx:]
+        encs = self.pos_enc(encs)
+        m = encs.shape[1]
+        encs = self.encoder( encs, self.fwd_mask[:m,:m] )
+        if self.lnorm:
+            encs = self.layernorm(encs)
+        self.h = encs[:,-1:]
+        self.prev_hs.append(self.h.detach().data)
+        encs = encs[:,-fx.shape[1]-1:-1]
+        b,s,e = encs.shape
+        encs = encs.reshape(-1,e)
         actns = self.actn_dense(encs).reshape(b,s,-1)
         langs = []
         for dense in self.lang_denses:

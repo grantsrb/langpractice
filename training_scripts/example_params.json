@@ -54,9 +54,14 @@
     "n_envs": 3,
     "batch_size": 129,
     "seq_len": 7,
+    "max_ctx_len": null,
     "exp_len": 1000,
     "reset_trn_env": true,
     "roll_data": true,
+
+    "dino": false,
+    "augment": false,
+    "smoothing": 0.1,
 
     "val_targ_range": null,
     "val_max_actn": false,

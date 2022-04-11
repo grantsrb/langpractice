@@ -1,6 +1,7 @@
 from langpractice.experience import DataCollector
 from langpractice.models import * # SimpleCNN, SimpleLSTM
 from langpractice.recorders import Recorder
+from langpractice.preprocessors import sample_augmentation
 from langpractice.utils.save_io import load_checkpoint
 from langpractice.utils.utils import try_key, get_loss_and_accs
 from langpractice.utils.training import get_resume_checkpt
@@ -8,6 +9,7 @@ from langpractice.utils.training import get_resume_checkpt
 from torch.optim import Adam, RMSprop
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.nn import CrossEntropyLoss
+import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
@@ -375,6 +377,7 @@ class Trainer:
         if torch.cuda.is_available(): torch.cuda.empty_cache()
         model.train()
         model.reset(self.hyps['batch_size'])
+        mems = []
         for i,data in enumerate(data_iter):
             iter_start = time.time()
             self.optim.zero_grad()
@@ -391,53 +394,53 @@ class Trainer:
 
             ## Testing
             ##############
-            if self.hyps["exp_name"]=="test":
-                grabs = data["grabs"]
-                print("train grabs:")
-                for row in range(len(drops)):
-                    print(grabs[row].cpu().numpy())
-                print("train n_targs:")
-                for row in range(len(drops)):
-                    print(n_targs[row].cpu().numpy())
-                print("train n_items:")
-                for row in range(len(drops)):
-                    print(n_items[row].cpu().numpy())
-                print("train drops:")
-                for row in range(len(drops)):
-                    print(drops[row].cpu().numpy())
-                print("lang labels:")
-                for row in range(len(drops)):
-                    print(labels[row].cpu().numpy())
-                print("train actns:")
-                for row in range(len(drops)):
-                    print(actns[row].cpu().numpy())
+            #if self.hyps["exp_name"]=="test":
+            #    grabs = data["grabs"]
+            #    print("train grabs:")
+            #    for row in range(len(drops)):
+            #        print(grabs[row].cpu().numpy())
+            #    print("train n_targs:")
+            #    for row in range(len(drops)):
+            #        print(n_targs[row].cpu().numpy())
+            #    print("train n_items:")
+            #    for row in range(len(drops)):
+            #        print(n_items[row].cpu().numpy())
+            #    print("train drops:")
+            #    for row in range(len(drops)):
+            #        print(drops[row].cpu().numpy())
+            #    print("lang labels:")
+            #    for row in range(len(drops)):
+            #        print(labels[row].cpu().numpy())
+            #    print("train actns:")
+            #    for row in range(len(drops)):
+            #        print(actns[row].cpu().numpy())
 
-                print("Starting new loop")
-                o = obs.detach().cpu().data.numpy()
-                o = o[:,:, 0].transpose((0,2,1,3)).reshape(-1, 45*o.shape[1])
-                fig = plt.figure(figsize=(10,10))
-                plt.imshow(o)
-                plt.savefig("imgs/epoch{}_iter{}.png".format(epoch, i))
-                ##plt.show()
-                for row in range(min(len(obs),4)):
-                    print("row:",row)
-                    for ii,o in enumerate(obs[row].detach().cpu().numpy()):
-                        print("seq:", ii)
-                        print("n_items:", n_items[row,ii].cpu().numpy())
-                        print("n_targs:", n_targs[row,ii].cpu().numpy())
-                        print("drops:", drops[row,ii].cpu().numpy())
-                        print("labels:", labels[row,ii].cpu().numpy())
-                        print("actns:", actns[row,ii].cpu().numpy())
-                        print()
-                        plt.imshow(o.transpose((1,2,0)).squeeze())
-                        plt.show()
+            #    print("Starting new loop")
+            #    o = obs.detach().cpu().data.numpy()
+            #    o = o[:,:, 0].transpose((0,2,1,3)).reshape(-1, 45*o.shape[1])
+            #    fig = plt.figure(figsize=(10,10))
+            #    plt.imshow(o)
+            #    plt.savefig("imgs/epoch{}_iter{}.png".format(epoch, i))
+            #    ##plt.show()
+            #    for row in range(min(len(obs),4)):
+            #        print("row:",row)
+            #        for ii,o in enumerate(obs[row].detach().cpu().numpy()):
+            #            print("seq:", ii)
+            #            print("n_items:", n_items[row,ii].cpu().numpy())
+            #            print("n_targs:", n_targs[row,ii].cpu().numpy())
+            #            print("drops:", drops[row,ii].cpu().numpy())
+            #            print("labels:", labels[row,ii].cpu().numpy())
+            #            print("actns:", actns[row,ii].cpu().numpy())
+            #            print()
+            #            plt.imshow(o.transpose((1,2,0)).squeeze())
+            #            plt.show()
                 ##        #plt.savefig("imgs/epoch{}_row{}_samp{}.png".format(epoch, row, ii))
             ##############
 
             # Resets to h value to appropriate step of last loop
             self.reset_model(model, len(obs))
             # model uses dones if it is recurrent
-            if drops.sum() == 0:
+            if drops.sum() == 0 and self.phase != 1:
                 print("No drops in loop", i, "... continuing")
                 with torch.no_grad():
                     logits, langs = model(
@@ -445,8 +448,14 @@ class Trainer:
                         dones.to(DEVICE)
                     )
                 continue
+
+            aug1 = obs
+            if try_key(self.hyps, "augment", False):
+                s = aug1.shape
+                aug1 = sample_augmentation(aug1.reshape(-1,*s[-3:]))
+                aug1 = aug1.reshape(s)
             logits, langs = model(
-                obs.to(DEVICE),
+                aug1.to(DEVICE),
                 dones.to(DEVICE)
             )
 
@@ -463,6 +472,20 @@ class Trainer:
                 prepender="train",
                 lang_p=self.hyps["lang_p"]
             )
+
+            slen = obs.shape[1]
+            if try_key(self.hyps,"dino",False) and\
+                            len(model.prev_hs)>slen:
+                q = model.sim_proj(model.h.reshape(len(obs), -1))
+                k = model.prev_hs[-slen-1].to(DEVICE)
+                k = F.softmax(k.reshape(len(obs),-1), dim=-1)
+                loss += F.cross_entropy(
+                    q,
+                    k,
+                    label_smoothing=try_key(self.hyps,"smoothing",0)
+                )
+                model.h = model.h.detach().data
+
             # Backprop and update
             loss.backward()
             self.optim.step()
