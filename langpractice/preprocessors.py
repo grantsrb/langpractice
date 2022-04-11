@@ -26,6 +26,7 @@ def snake_prep(pic):
     pic = new_pic
     return new_pic[None]
 
+pad = T.Pad(20)
 color_jitter = T.ColorJitter(
     hue=.3,
     saturation=.5
@@ -33,15 +34,17 @@ color_jitter = T.ColorJitter(
     #contrast=.1
 )
 gauss_blur = T.RandomApply([T.GaussianBlur((5,5),sigma=0.1)],p=1)
-distort = T.RandomPerspective(distortion_scale=.6, p=0.6)
+distort = T.RandomPerspective(distortion_scale=.1, p=.5)
 invert_color = T.RandomInvert()
 # trans = (horizontal shift, vertical shift)
-affine = T.RandomAffine(180, translate=(.03,0), scale=(.5,1))
+#affine = T.RandomAffine(180, translate=(.03,0), scale=(.5,1))
+affine = T.RandomAffine(180, translate=(.03,0))
 pipeline = torch.nn.Sequential(
+    pad,
     color_jitter,
     gauss_blur,
     affine,
-    distort,
+    #distort,
     invert_color,
 )
 def sample_augmentation(imgs):
