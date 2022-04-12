@@ -678,8 +678,10 @@ class Runner:
             state = self.state_bookmark
             if self.h_bookmark is None:
                 model.reset(1)
-            else:
+            elif hasattr(model, "hs") and model.hs is not None:
                 model.hs, model.cs = self.h_bookmark
+            elif hasattr(model, "h") and model.h is not None:
+                model.h, model.c = self.h_bookmark
         exp_len = self.hyps['exp_len']
         for i in range(exp_len):
             # Collect the state of the environment
@@ -717,11 +719,13 @@ class Runner:
             )
             if done: model.reset(1)
         self.state_bookmark = state
-        if hasattr(model, "h"):
+        if hasattr(model, "hs") and model.hs is not None:
             self.h_bookmark = (
                 [h.detach().data for h in model.hs],
                 [c.detach().data for c in model.cs]
             )
+        elif hasattr(model, "h") and model.h is not None:
+            self.h_bookmark = (model.h, model.c)
 
 class ValidationRunner(Runner):
     def __init__(self, hyps,

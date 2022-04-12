@@ -60,6 +60,9 @@
     "roll_data": true,
 
     "dino": false,
+    "dino_weight": 0,
+    "simclr": false,
+    "simclr_weight": 0,
     "augment": false,
     "smoothing": 0.1,
 

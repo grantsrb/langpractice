@@ -107,6 +107,14 @@ class Model(torch.nn.Module):
         self.dino = dino
         if self.dino:
             self.sim_proj = nn.Linear(self.h_size, self.h_size)
+        self.h = None
+        self.c = None
+
+    def detach_h(self):
+        if hasattr(self.h,"detach"):
+            self.h = self.h.detach().data
+        if hasattr(self.hs, "append") and len(hs) > 0:
+            self.hs = [h.detach().data for h in self.hs]
 
     @property
     def is_cuda(self):
@@ -970,9 +978,10 @@ class MemTransformer(Model):
             h: torch FloatTensor (B, H)
             c: torch FloatTensor (B, H)
         """
-        mask = (1-dones).unsqueeze(-1)
-        h = self.h*mask
-        return h
+        #mask = (1-dones).unsqueeze(-1)
+        #h = self.h*mask
+        #return h
+        pass
 
     def reset_to_step(self, step=0):
         """
@@ -985,7 +994,7 @@ class MemTransformer(Model):
             step: int
                 the index of the step to revert the recurrence to
         """
-        pass
+        self.h = self.h.detach().data
 
     def step(self, x, *args, **kwargs):
         """
@@ -1127,6 +1136,8 @@ class DoubleLSTM(SimpleLSTM):
                 self.cs[i] = self.cs[i].to(self.get_device())
         self.prev_hs = [self.hs]
         self.prev_cs = [self.cs]
+        self.h = None
+        self.c = None
 
     def partial_reset(self, dones):
         """

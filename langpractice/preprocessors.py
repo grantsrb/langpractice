@@ -9,6 +9,9 @@ def normalize_prep(pic):
 def null_prep(pic):
     return pic[None]
 
+def pad_prep(pic):
+    return np.pad(pic,15)[None]
+
 def pong_prep(pic):
     pic = pic[35:195] # crop
     pic = pic[::2,::2,0] # downsample by factor of 2
@@ -26,7 +29,6 @@ def snake_prep(pic):
     pic = new_pic
     return new_pic[None]
 
-pad = T.Pad(20)
 color_jitter = T.ColorJitter(
     hue=.3,
     saturation=.5
@@ -40,7 +42,6 @@ invert_color = T.RandomInvert()
 #affine = T.RandomAffine(180, translate=(.03,0), scale=(.5,1))
 affine = T.RandomAffine(180, translate=(.03,0))
 pipeline = torch.nn.Sequential(
-    pad,
     color_jitter,
     gauss_blur,
     affine,

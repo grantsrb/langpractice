@@ -473,18 +473,25 @@ class Trainer:
                 lang_p=self.hyps["lang_p"]
             )
 
-            slen = obs.shape[1]
-            if try_key(self.hyps,"dino",False) and\
-                            len(model.prev_hs)>slen:
-                q = model.sim_proj(model.h.reshape(len(obs), -1))
-                k = model.prev_hs[-slen-1].to(DEVICE)
-                k = F.softmax(k.reshape(len(obs),-1), dim=-1)
-                loss += F.cross_entropy(
-                    q,
-                    k,
-                    label_smoothing=try_key(self.hyps,"smoothing",0)
+            slen = len(model.prev_hs) > obs.shape[1]
+            if try_key(self.hyps,"dino",False) and slen:
+                if hasattr(model, "hs") and model.hs is not None:
+                    model.h = model.hs[0]
+                weight = try_key(self.hyps, "dino_weight", 0.1)
+                loss += weight*self.dino_loss(
+                    model,
+                    q=model.sim_proj(model.h.reshape(len(obs), -1)),
+                    k=model.prev_hs[-slen-1].to(DEVICE)
                 )
-                model.h = model.h.detach().data
+            if try_key(self.hyps,"simclr",False) and slen:
+                if hasattr(model, "hs") and model.hs is not None:
+                    model.h = model.hs[0]
+                weight = try_key(self.hyps, "simclr_weight", 0.1)
+                loss += weight*self.simclr_loss(
+                    model,
+                    q=model.sim_proj(model.h.reshape(len(obs), -1)),
+                    k=model.prev_hs[-slen-1].to(DEVICE)
+                )
 
             # Backprop and update
             loss.backward()
@@ -508,6 +515,52 @@ class Trainer:
         self.scheduler.step(
             np.mean(self.recorder.metrics[key])
         )
+
+    def dino_loss(self,model,q,k):
+        """
+        Performs the loss from the DINO paper which pushes the two
+        vectors closer together via self distillation.
+
+        Args:
+            model: torch module
+            q: torch tensor (B, H)
+                the model's most recent h vector projected by some
+                matrix w.
+            k: torch tensor (B, H)
+                the model's h vector from the last context that shared
+                no elements with the current context.
+        Returns:
+            loss: torch tensor (1,)
+        """
+        k = F.softmax(k.reshape(len(k),-1), dim=-1)
+        return F.cross_entropy(
+            q,
+            k,
+            label_smoothing=try_key(self.hyps,"smoothing",0)
+        )
+
+    def simclr_loss(self, model, q, k):
+        """
+        Performs the loss from the SimCLR paper which clusters images
+        under the assumption that an image has its own unique label.
+
+        Args:
+            model: torch module
+            q: torch tensor (B, H)
+                the model's most recent h vector projected by some
+                matrix w.
+            k: torch tensor (B, H)
+                the model's h vector from the last context that shared
+                no elements with the current context.
+        Returns:
+            loss: torch tensor (1,)
+        """
+        sq = q.sum(-1)[:,None]
+        sk = k.sum(-1)
+        mm = -2*torch.mm(q,k.reshape(len(k),-1).T)
+        dists = (mm + sq + sk)/len(sq)
+        arange = torch.arange(len(dists))
+        return torch.mean(dists[arange,arange]/dists.sum(-1))
 
     def print_loop(self,
                    loop_count,
