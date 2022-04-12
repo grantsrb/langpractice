@@ -34,6 +34,7 @@ class Model(torch.nn.Module):
         seq_len=64,
         max_ctx_len=None,
         dino=False,
+        simclr=False,
         *args, **kwargs
     ):
         """
@@ -83,6 +84,9 @@ class Model(torch.nn.Module):
             dino: bool
                 if true, the memory units of the network will be trained
                 using the DINO self distillation method.
+            simclr: bool
+                if true, the memory units of the network will be trained
+                using the SimCLR self distillation method.
         """
         super().__init__()
         self.inpt_shape = inpt_shape
@@ -105,7 +109,8 @@ class Model(torch.nn.Module):
         if max_ctx_len is None: max_ctx_len = seq_len
         self.max_ctx_len = max(max_ctx_len, seq_len)
         self.dino = dino
-        if self.dino:
+        self.simclr = simclr
+        if self.dino or self.simclr:
             self.sim_proj = nn.Linear(self.h_size, self.h_size)
         self.h = None
         self.c = None
