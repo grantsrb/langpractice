@@ -110,7 +110,9 @@ class Model(torch.nn.Module):
         self.max_ctx_len = max(max_ctx_len, seq_len)
         self.dino = dino
         self.simclr = simclr
-        if self.dino or self.simclr:
+        if self.dino:
+            self.dino_proj = nn.Linear(self.h_size, self.h_size)
+        if self.simclr:
             self.sim_proj = nn.Linear(self.h_size, self.h_size)
         self.h = None
         self.c = None

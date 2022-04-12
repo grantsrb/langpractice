@@ -480,7 +480,7 @@ class Trainer:
                 weight = try_key(self.hyps, "dino_weight", 0.1)
                 loss += weight*self.dino_loss(
                     model,
-                    q=model.sim_proj(model.h.reshape(len(obs), -1)),
+                    q=model.dino_proj(model.h.reshape(len(obs), -1)),
                     k=model.prev_hs[-slen-1].to(DEVICE)
                 )
             if try_key(self.hyps,"simclr",False) and slen:
