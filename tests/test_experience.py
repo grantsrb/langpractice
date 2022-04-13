@@ -8,7 +8,7 @@ class TestExperienceReplay(unittest.TestCase):
     def make_exp(self, hyps_override=dict()):
         hyps={
             "exp_len": 10,
-            "env_type": "gordongames-v4",
+            "env_types": ["gordongames-v4"],
             "batch_size": 3,
             "inpt_shape": (1,4,5),
             "seq_len": 2,
@@ -19,9 +19,10 @@ class TestExperienceReplay(unittest.TestCase):
             "second_phase": 1,
             "n_frame_stack": 1,
             "randomize_order": False,
-            "lang_on_drops_only": True,
+            "langall": False,
             "targ_range": [1,10],
             "n_envs": 3,
+            "lang_size": 10,
         }
         hyps = {**hyps, **hyps_override}
         exp = ExperienceReplay(hyps)
@@ -56,14 +57,22 @@ class TestExperienceReplay(unittest.TestCase):
         exp = self.make_exp()
         data = exp.harvest_exp()
         for k in data.keys():
-            self.assertTrue(
-                np.array_equal(data[k].numpy(), exp.shared_exp[k].numpy())
-            )
+            if k in exp.shared_exp:
+                self.assertTrue(
+                    np.array_equal(
+                        data[k].numpy(),
+                        exp.shared_exp[k].numpy()
+                    )
+                )
         self.fill_exp_with_random_values(exp)
         for k in data.keys():
-            self.assertFalse(
-                np.array_equal(data[k].numpy(), exp.shared_exp[k].numpy())
-            )
+            if k in exp.shared_exp:
+                self.assertFalse(
+                    np.array_equal(
+                        data[k].numpy(),
+                        exp.shared_exp[k].numpy()
+                    )
+                )
 
     def test_len_rolldatatrue(self):
         override = {
@@ -226,10 +235,11 @@ class TestExperienceReplay(unittest.TestCase):
 
     def test_get_drops_v1(self):
         hyps = {
-            "lang_on_drops_only": True,
-            "env_type": "gordongames-v1",
+            "langall": False,
+            "env_types": ["gordongames-v1"],
             "count_targs": False,
             "drops_perc_threshold": 0.05,
+            "lang_size": 10,
             }
         grabs = torch.LongTensor([
             [0,1,3,3,3,0,0],
@@ -249,10 +259,11 @@ class TestExperienceReplay(unittest.TestCase):
 
     def test_get_drops_v1_lodoFalse(self):
         hyps = {
-            "lang_on_drops_only": False,
-            "env_type": "gordongames-v1",
+            "langall": True,
+            "env_types": ["gordongames-v1"],
             "count_targs": False,
             "drops_perc_threshold": 0.05,
+            "lang_size": 10,
             }
         grabs = torch.LongTensor([
             [0,1,3,3,3,0,0],
@@ -260,7 +271,11 @@ class TestExperienceReplay(unittest.TestCase):
             [3,1,0,2,0,3,0],
         ])
         goal_drops = torch.ones_like(grabs)
-        drops = ExperienceReplay.get_drops(hyps, grabs, torch.ones_like(grabs))
+        drops = ExperienceReplay.get_drops(
+            hyps,
+            grabs,
+            torch.ones_like(grabs)
+        )
         self.assertTrue(np.array_equal(
             drops.numpy(),
             goal_drops.numpy()
@@ -268,10 +283,11 @@ class TestExperienceReplay(unittest.TestCase):
 
     def test_get_drops_v4_counttargsFalse(self):
         hyps = {
-            "lang_on_drops_only": True,
-            "env_type": "gordongames-v4",
+            "langall": False,
+            "env_types": ["gordongames-v4"],
             "count_targs": False,
             "drops_perc_threshold": 0.05,
+            "lang_size": 10,
             }
         grabs = torch.LongTensor([
             [0,1,1,1,1,0,0],
@@ -291,10 +307,11 @@ class TestExperienceReplay(unittest.TestCase):
 
     def test_get_drops_v4_counttargsTrue(self):
         hyps = {
-            "lang_on_drops_only": True,
-            "env_type": "gordongames-v4",
+            "langall": False,
+            "env_types": ["gordongames-v4"],
             "count_targs": True,
             "drops_perc_threshold": 0.05,
+            "lang_size": 10,
             }
         grabs = torch.LongTensor([
             [0,1,1,1,1,0,0],
@@ -317,11 +334,12 @@ class TestExperienceReplay(unittest.TestCase):
 
     def test_get_drops_v4_langloctype1(self):
         hyps = {
-            "lang_on_drops_only": True,
-            "env_type": "gordongames-v4",
+            "langall": False,
+            "env_types": ["gordongames-v4"],
             "count_targs": True,
             "lang_targs_only": 1,
             "drops_perc_threshold": 0.05,
+            "lang_size": 10,
             }
         grabs = torch.LongTensor([
             [0,1,1,1,1,0,0],

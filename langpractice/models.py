@@ -3,10 +3,28 @@ import torch
 import torch.nn as nn
 from langpractice.utils.torch_modules import Flatten, Reshape, GaussianNoise
 from langpractice.utils.utils import update_shape
+from langpractice.envs import TORCH_CONDITIONALS, CDTNL_LANG_SIZE
 import matplotlib.pyplot as plt
 # update_shape(shape, kernel=3, padding=0, stride=1, op="conv"):
 
-class Model(torch.nn.Module):
+class CoreModule(torch.nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+
+    @property
+    def is_cuda(self):
+        try:
+            return next(self.parameters()).is_cuda
+        except:
+            return False
+
+    def get_device(self):
+        try:
+            return next(self.parameters()).get_device()
+        except:
+            return False
+
+class Model(CoreModule):
     """
     This is the base class for all models within this project. It
     ensures the appropriate members are added to the model.
@@ -27,6 +45,7 @@ class Model(torch.nn.Module):
         feat_drop_p=0,
         drop_p=0,
         lstm_lang_first=True,
+        env_types=["gordongames-v4"],
         *args, **kwargs
     ):
         """
@@ -65,6 +84,8 @@ class Model(torch.nn.Module):
                 be used for the action layers. If False, the second h
                 vector will be used for language and the first h for
                 actions.
+            env_types: list of str
+                a list of environment types
         """
         super().__init__()
         self.inpt_shape = inpt_shape
@@ -81,13 +102,27 @@ class Model(torch.nn.Module):
         self._trn_whls = nn.Parameter(torch.ones(1), requires_grad=False)
         self.lstm_lang_first = lstm_lang_first
         self.n_lstms = 1
+        self.env_types = env_types
+        self.n_envs = len(self.env_types)
+        self.initialize_conditional_variables()
 
-    @property
-    def is_cuda(self):
-        try:
-            return self._trn_whls.is_cuda
-        except:
-            return False
+    def initialize_conditional_variables(self):
+        """
+        Creates the conditional lstm, the conditional long indices, and
+        the conditional batch distribution tensor. The cdtnl_batch
+        tensor is a way to use the same conditional for all appropriate
+        batch rows at the same time. At training time, we use 
+        `repeat_interleave` to expand cdtnl_batch appropriately.
+        """
+        self.cdtnl_lstm = ConditionalLSTM(self.h_size)
+        max_len = max([len(v) for v in TORCH_CONDITIONALS.values()])
+        cdtnl_idxs = torch.zeros(len(self.env_types),max_len).long()
+        cdtnl_batch = torch.arange(self.n_envs).long()
+        for i,env_type in enumerate(self.env_types):
+            l = len(TORCH_CONDITIONALS[env_type])
+            cdtnl_idxs[i,:l] = TORCH_CONDITIONALS[env_type]
+        self.register_buffer("cdtnl_batch", cdtnl_batch)
+        self.register_buffer("cdtnl_idxs", cdtnl_idxs)
 
     @property
     def trn_whls(self):
@@ -117,12 +152,6 @@ class Model(torch.nn.Module):
                 labels.
         """
         self._trn_whls.data[0] = status
-
-    def get_device(self):
-        try:
-            return next(self.parameters()).get_device()
-        except:
-            return False
 
     def reset(self, batch_size):
         """
@@ -473,7 +502,7 @@ class SimpleLSTM(Model):
 
         # LSTM
         self.flat_size = cnn.flat_size
-        self.lstm = nn.LSTMCell(self.flat_size, self.h_size)
+        self.lstm = nn.LSTMCell(self.flat_size+self.h_size, self.h_size)
 
         # Action Dense
         if self.drop_p > 0:
@@ -573,12 +602,15 @@ class SimpleLSTM(Model):
             self.h.to(self.get_device())
             self.c.to(self.get_device())
 
-    def step(self, x, *args, **kwargs):
+    def step(self, x, cdtnl, *args, **kwargs):
         """
         Performs a single step rather than a complete sequence of steps
 
         Args:
             x: torch FloatTensor (B, C, H, W)
+                a single step of observations
+            cdtnl: torch FloatTensor (B, E)
+                the conditional latent vectors
         Returns:
             actn: torch Float Tensor (B, K)
             langs: list of torch Float Tensor (B, L)
@@ -588,7 +620,8 @@ class SimpleLSTM(Model):
             self.c = self.c.to(x.get_device())
         fx = self.features(x)
         fx = fx.reshape(len(x), -1) # (B, N)
-        self.h, self.c = self.lstm( fx, (self.h, self.c) )
+        cat = torch.cat([fx, cdtnl], dim=-1)
+        self.h, self.c = self.lstm( cat, (self.h, self.c) )
         if self.lnorm:
             self.c = self.layernorm_c(self.c)
             self.h = self.layernorm_h(self.h)
@@ -609,6 +642,7 @@ class SimpleLSTM(Model):
                 N is equivalent to self.actn_size
             langs: torch FloatTensor (N,B,S,L)
         """
+        cdtnl = self.cdtnl_lstm(self.cdtnl_idxs)
         seq_len = x.shape[1]
         actns = []
         langs = []
@@ -616,8 +650,9 @@ class SimpleLSTM(Model):
         self.prev_cs = []
         if x.is_cuda:
             dones = dones.to(x.get_device())
+        cb = self.cdtnl_batch.repeat_interleave(len(x)//self.n_envs)
         for s in range(seq_len):
-            actn, lang = self.step(x[:,s])
+            actn, lang = self.step(x[:,s], cdtnl[cb])
             actns.append(actn.unsqueeze(1))
             if self.n_lang_denses == 1:
                 lang = lang[0].unsqueeze(0).unsqueeze(2) # (1, B, 1, L)
@@ -725,12 +760,15 @@ class DoubleLSTM(SimpleLSTM):
             self.hs = [h.detach().data for h in self.hs]
             self.cs = [c.detach().data for c in self.cs]
 
-    def step(self, x, *args, **kwargs):
+    def step(self, x, cdtnl, *args, **kwargs):
         """
         Performs a single step rather than a complete sequence of steps
 
         Args:
             x: torch FloatTensor (B, C, H, W)
+                a single step of observations
+            cdtnl: torch FloatTensor (B, E)
+                the conditional latent vectors
         Returns:
             actn: torch Float Tensor (B, K)
             langs: list of torch Float Tensor (B, L)
@@ -741,7 +779,9 @@ class DoubleLSTM(SimpleLSTM):
                 self.cs[i] = self.cs[i].to(x.get_device())
         fx = self.features(x)
         fx = fx.reshape(len(x), -1) # (B, N)
-        h0, c0 = self.lstm0( fx, (self.hs[0], self.cs[0]) )
+        cat = torch.cat([fx, cdtnl], dim=-1)
+
+        h0, c0 = self.lstm0( cat, (self.hs[0], self.cs[0]) )
         if self.lnorm:
             c0 = self.layernorm_c(c0)
             h0 = self.layernorm_h(h0)
@@ -751,18 +791,14 @@ class DoubleLSTM(SimpleLSTM):
             for dense in self.lang_denses:
                 langs.append(dense(h0))
             actn = self.actn_dense(h1)
-            self.hs = [h0, h1]
-            self.cs = [c0, c1]
-            return actn, langs
         else:
             langs = []
             for dense in self.lang_denses:
                 langs.append(dense(h1))
             actn = self.actn_dense(h0)
-            self.hs = [h0, h1]
-            self.cs = [c0, c1]
-            return actn, langs
-
+        self.hs = [h0, h1]
+        self.cs = [c0, c1]
+        return actn, langs
 
     def forward(self, x, dones, *args, **kwargs):
         """
@@ -776,6 +812,7 @@ class DoubleLSTM(SimpleLSTM):
                 N is equivalent to self.actn_size
             langs: torch FloatTensor (N,B,S,L)
         """
+        cdtnl = self.cdtnl_lstm(self.cdtnl_idxs)
         seq_len = x.shape[1]
         actns = []
         langs = []
@@ -783,8 +820,9 @@ class DoubleLSTM(SimpleLSTM):
         self.prev_cs = []
         if x.is_cuda:
             dones = dones.to(x.get_device())
+        cb = self.cdtnl_batch.repeat_interleave(len(x)//self.n_envs)
         for s in range(seq_len):
-            actn, lang = self.step(x[:,s])
+            actn, lang = self.step(x[:,s], cdtnl[cb])
             actns.append(actn.unsqueeze(1))
             if self.n_lang_denses == 1:
                 lang = lang[0].unsqueeze(0).unsqueeze(2) # (1, B, 1, L)
@@ -796,5 +834,63 @@ class DoubleLSTM(SimpleLSTM):
             self.prev_cs.append([c.detach().data for c in self.cs])
         return torch.cat(actns, dim=1), torch.cat(langs, dim=2)
 
+class ConditionalLSTM(CoreModule):
+    """
+    This LSTM is used to process conditional sentences into a single
+    latent vector.
+    """
+    def __init__(self, h_size, *args, **kwargs):
+        """
+        h_size: int
+            the hidden dimension size
+        """
+        super().__init__()
+        self.h_size = h_size
+        self.embs = nn.Embedding(CDTNL_LANG_SIZE, self.h_size)
+        self.lstm = nn.LSTMCell(self.h_size, self.h_size)
+        self.layernorm_h = nn.LayerNorm(self.h_size)
+        self.layernorm_c = nn.LayerNorm(self.h_size)
+        self.h = None
+        self.c = None
+
+    def reset(self, batch_size):
+        """
+        Resets the recurrent state
+
+        Args:
+            batch_size: int
+        """
+        h = torch.zeros((batch_size, self.h_size))
+        c = torch.zeros((batch_size, self.h_size))
+        if self.is_cuda:
+            h = h.to(self.get_device())
+            c = c.to(self.get_device())
+        return h,c
+
+    def forward(self, x):
+        """
+        Processes the argued sequence to output a latent vector
+        representation
+
+        Args:
+            x: torch LongTensor (B,S)
+                a sequence of token indexes
+        Returns:
+            encs: torch FloatTensor (B,H)
+                a batch of recurrent latent vectors
+        """
+        h,c = self.reset(len(x))
+        for s in range(x.shape[1]):
+            try:
+                embs = self.embs(x[:,s])
+                h,c = self.lstm(embs, (h, c))
+                h = self.layernorm_h(h)
+                c = self.layernorm_c(c)
+            except:
+                print("embs:", embs.get_device())
+                print("h:", h.get_device())
+                print("c:", c.get_device())
+                assert False
+        return h
 
 

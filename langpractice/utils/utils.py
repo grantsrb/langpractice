@@ -340,7 +340,7 @@ def get_lang_labels(n_items, n_targs, max_label, use_count_words):
         labels = get_piraha_labels(labels, n_items)
     # Random labels
     elif int(use_count_words) == 3:
-        labels = torch.randint(0,max_label+1, labels.shape)
+        labels = torch.randint(0, max_label+1, labels.shape)
         if n_items.is_cuda:
             labels = labels.to(DEVICE)
     # Duplicate labels

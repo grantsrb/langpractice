@@ -8,7 +8,7 @@ import numpy as np
 from langpractice.models import NullModel
 from langpractice.envs import SequentialEnvironment
 from langpractice.oracles import *
-from langpractice.utils.utils import try_key, sample_action, zipfian, get_lang_labels
+from langpractice.utils.utils import try_key, sample_action, zipfian, get_lang_labels, get_loss_and_accs
 from collections import deque
 
 if torch.cuda.is_available():
@@ -102,7 +102,6 @@ class ExperienceReplay(torch.utils.data.Dataset):
         """
         self.hyps = hyps
         self.exp_len = self.hyps["exp_len"]
-        self.env_type = self.hyps["env_type"]
         self.batch_size = self.hyps["batch_size"]
         self.inpt_shape = self.hyps["inpt_shape"]
         self.seq_len = self.hyps["seq_len"]
@@ -256,7 +255,6 @@ class ExperienceReplay(torch.utils.data.Dataset):
             hyps: dict
                 the hyperparameters
                 langall: bool
-                env_type: str
                 count_targs: bool
                 drops_perc_threshold: float
                 lang_targs_only: int
@@ -276,16 +274,53 @@ class ExperienceReplay(torch.utils.data.Dataset):
                 a tensor denoting if the agent dropped an item with a 1,
                 0 otherwise. See WARNING in description
         """
-        env_types = {"gordongames-v4", "gordongames-v7", "gordongames-v8"}
         if type(grabs) == type(np.asarray([])):
             grabs = torch.from_numpy(grabs).long()
         if try_key(hyps, "langall", False):
             return torch.ones_like(grabs)
-        drops = grabs.clone().long()
+        if try_key(hyps, "lang_targs_only", 0) == 1:
+            return is_animating.clone()
+        block = len(grabs)//len(hyps["env_types"])
+        drops = torch.zeros_like(grabs).long()
+        for i,env_type in enumerate(hyps["env_types"]):
+            temp = {**hyps, "env_type": env_type}
+            drops[i*block:(i+1)*block] = ExperienceReplay.get_drops_helper(
+                temp,
+                grabs[i*block:(i+1)*block],
+                is_animating[i*block:(i+1)*block]
+            )
+        return drops
 
-        if hyps["env_type"] in env_types:
-            if try_key(hyps, "lang_targs_only", 0) == 1:
-                return is_animating.clone()
+    @staticmethod
+    def get_drops_helper(hyps, grabs, is_animating):
+        """
+        Assists the get_drops function.
+
+        Args:
+            hyps: dict
+                the hyperparameters
+                langall: bool
+                count_targs: bool
+                drops_perc_threshold: float
+                lang_targs_only: int
+                    if 0, does nothing. If 1, will only return drops
+                    where is_animating is true. This argument is
+                    overridden by langall being true.
+                    count_targs is overridden by this argument.
+            grabs: Long Tensor (B,N)
+                a tensor denoting the item grabbed by the agent at
+                each timestep. Assumes 1 means PILE, and 2 means BUTTON
+                and 3 means ITEM
+            is_animating: torch LongTensor (..., N)
+                0s denote the environment was not displaying the targets
+                anymore. 1s denote the targets were displayed
+        Returns:
+            drops: Long Tensor (B,N)
+                a tensor denoting if the agent dropped an item with a 1,
+                0 otherwise. See WARNING in description
+        """
+        drops = grabs.clone().long()
+        if hyps["env_type"] in {"gordongames-v4", "gordongames-v8"}:
             drops[drops>0] = 1
             if try_key(hyps, "count_targs", True):
                 drops = drops | (is_animating>0)
@@ -305,6 +340,8 @@ class ExperienceReplay(torch.utils.data.Dataset):
             drops[0] = 0
         drops[drops!=1] = 0
         drops[drops>0] = 1
+        if try_key(hyps, "count_targs", True):
+            drops = drops | (is_animating>0)
         # In case less than 5% of the batch are drops, we set the last
         # column to 1
         perc_threshold = try_key(hyps,"drops_perc_threshold",0)
@@ -337,10 +374,10 @@ class DataCollector:
                 keys: str
                     batch_size: int
                         the number of parallel environments
-                    n_envs: int
+                    env_types: int
                         the number of runners to instantiate
         """
-        self.n_envs = hyps["n_envs"]
+        self.n_envs = len(hyps["env_types"])
         hyps["batch_size"]=(hyps["batch_size"]//self.n_envs)*self.n_envs
         self.hyps = hyps
         self.batch_size = self.hyps['batch_size']
@@ -384,11 +421,12 @@ class DataCollector:
         # Initialize runners
         # We add one here because the validation environment defaults
         # to the argued seed without offset
+        self.env_types = self.hyps["env_types"]
         self.runners = []
         offset = try_key(self.hyps, 'runner_seed_offset', 0)
-        for i in range(self.n_envs):
+        for i,env_type in enumerate(self.env_types):
             seed = self.hyps["seed"] + offset + i + 1
-            temp_hyps = {**self.hyps, "seed": seed}
+            temp_hyps = {**self.hyps,"seed":seed,"env_type":env_type}
             runner = Runner(
                 i,
                 self.exp_replay.shared_exp,
@@ -440,11 +478,11 @@ class DataCollector:
         self.procs.append(proc)
 
     def await_runners(self):
-        for i in range(self.hyps["n_envs"]):
+        for i in range(self.n_envs):
             self.stop_q.get()
 
     def dispatch_runners(self):
-        for i in range(self.hyps["n_envs"]):
+        for i in range(self.n_envs):
             self.gate_q.put(i)
 
     def await_validator(self):
@@ -558,13 +596,19 @@ class Runner:
         self.oracle = globals()[self.hyps["oracle_type"]](env_type)
         self.rand = np.random.default_rng(self.hyps["seed"])
 
-    def create_new_env(self, n_targs=None):
+    def create_new_env(self, n_targs=None, env_type=None):
         """
         This function simplifies making a new environment and storing
         all the variables associated with it. It uses the language
         target range or the action target range depending on the phase
         of the experiment. Phase 0 means language, anything else means
         action.
+
+        Args:
+            n_targs: int
+            env_type None or str
+                if None, defaults to whatever env_type is in the
+                hyperparams. Otherwise the argued env_type is used.
         """
         # Set defaults
         if try_key(self.hyps, "actn_range", None) is None:
@@ -582,6 +626,8 @@ class Runner:
         hyps = {**self.hyps}
         if n_targs is not None:
             hyps["targ_range"] =  (n_targs, n_targs)
+        if env_type is not None:
+            hyps["env_type"] = env_type
         self.env = SequentialEnvironment(**hyps)
         state = next_state(
             self.env,
@@ -611,7 +657,7 @@ class Runner:
         if model is None:
             self.model = NullModel(**self.hyps)
         bsize = self.hyps["batch_size"]
-        n_envs = self.hyps["n_envs"]
+        n_envs = len(self.hyps["env_types"])
         state = self.create_new_env()
         self.ep_rew = 0
         while True:
@@ -681,6 +727,9 @@ class Runner:
             else:
                 model.hs, model.cs = self.h_bookmark
         exp_len = self.hyps['exp_len']
+        with torch.no_grad():
+            idxs = model.cdtnl_idxs[self.idx][None]
+            cdtnl = model.cdtnl_lstm(idxs)
         for i in range(exp_len):
             # Collect the state of the environment
             t_state = torch.FloatTensor(state) # (C, H, W)
@@ -691,7 +740,7 @@ class Runner:
                 actn = actn_targ
             else:
                 inpt = t_state[None].to(DEVICE)
-                actn_pred, _ = model.step(inpt)
+                actn_pred, _ = model.step(inpt, cdtnl)
                 actn = sample_action(
                     F.softmax(actn_pred, dim=-1)
                 ).item()
@@ -773,7 +822,13 @@ class ValidationRunner(Runner):
         print("Validation runner target range:",self.hyps["targ_range"])
         self.phase = phase
         self.obs_deque = deque(maxlen=hyps['n_frame_stack'])
-        self.oracle = globals()[self.hyps["oracle_type"]](**self.hyps)
+        self.env_types = self.hyps["env_types"]
+        self.hyps["env_type"] = self.env_types[0]
+        self.oracles = {}
+        otype = self.hyps["oracle_type"]
+        for env_type in self.env_types:
+            temp_hyps = {**self.hyps, "env_type": env_type}
+            self.oracles[env_type] = globals()[otype](**temp_hyps)
         self.rand = np.random.default_rng(self.hyps["seed"])
         self.ep_idx = 0 # Used to track which data goes with which ep
 
@@ -812,7 +867,6 @@ class ValidationRunner(Runner):
                 self.phase_q.put(phase)
                 if self.phase != phase:
                     self.phase = phase
-                    state = self.create_new_env()
                 # Collect rollouts
                 self.rollout(epoch, self.model)
                 # Signals to main process that data has been collected
@@ -842,27 +896,40 @@ class ValidationRunner(Runner):
         self.hyps["seed"] = self.seed
         avg_acc = 0
         avg_loss = 0
-        for n_targs in rainj:
-            state = self.create_new_env(n_targs=n_targs)
-            model.reset(1)
+        for env_type in self.env_types:
+            self.oracle = self.oracles[env_type]
+            for n_targs in rainj:
+                state = self.create_new_env(
+                    n_targs=n_targs,
+                    env_type=env_type
+                )
+                model.reset(1)
 
-            data = self.collect_data(model, state, n_targs)
-            lang_labels = get_lang_labels(
-                data["n_items"],
-                data["n_targs"],
-                max_label=model.lang_size-1,
-                use_count_words=self.hyps["use_count_words"]
-            )
-            drops = ExperienceReplay.get_drops(
-                self.hyps,
-                data["grabs"],
-                data["is_animating"]
-            )
-            self.save_lang_data(
-                data, lang_labels, drops, epoch, self.phase
-            )
-            self.save_actn_data(data, epoch, self.phase)
-            self.save_epoch_data(data, epoch, self.phase, n_targs)
+                data = self.collect_data(model, state, n_targs)
+                lang_labels = get_lang_labels(
+                    data["n_items"],
+                    data["n_targs"],
+                    max_label=model.lang_size-1,
+                    use_count_words=self.hyps["use_count_words"]
+                )
+                drops = ExperienceReplay.get_drops(
+                    self.hyps,
+                    data["grabs"],
+                    data["is_animating"]
+                )
+                data["lang_targs"] = lang_labels
+                data["drops"] = drops
+                self.save_lang_data(
+                  data, lang_labels, drops, epoch, self.phase, env_type
+                )
+                self.save_actn_data(data, epoch, self.phase, env_type)
+                self.save_epoch_data(
+                    data,
+                    epoch,
+                    self.phase,
+                    n_targs,
+                    env_type
+                )
 
     def save_lang_data(self,
                        data,
@@ -870,6 +937,7 @@ class ValidationRunner(Runner):
                        drops,
                        epoch,
                        phase,
+                       env_type,
                        save_name="validation_lang.csv"):
         """
         Saves the stats at the end of each episode collected from the
@@ -897,6 +965,7 @@ class ValidationRunner(Runner):
             epoch: int
             phase: int
             save_name: str
+            env_type: str
         """
         inpts = {
             "n_items":None,
@@ -925,6 +994,7 @@ class ValidationRunner(Runner):
         df = pd.DataFrame(inpts)
         df["epoch"] = epoch
         df["phase"] = self.phase
+        df["env_type"] = env_type
         path = os.path.join(
             self.hyps["save_folder"],
             save_name
@@ -941,6 +1011,7 @@ class ValidationRunner(Runner):
                        data,
                        epoch,
                        phase,
+                       env_type,
                        save_name="validation_stats.csv"):
         """
         Saves the stats at the end of each episode collected from the
@@ -951,6 +1022,7 @@ class ValidationRunner(Runner):
             data: dict
             epoch: int
             phase: int
+            env_type: str
             save_name: str
         """
         keys = ["n_items", "n_targs", "n_aligned", "ep_idx"]
@@ -962,6 +1034,7 @@ class ValidationRunner(Runner):
         df = pd.DataFrame(inpts)
         df["epoch"] = epoch
         df["phase"] = self.phase
+        df["env_type"] = env_type
         path = os.path.join(
             self.hyps["save_folder"],
             save_name
@@ -979,6 +1052,7 @@ class ValidationRunner(Runner):
                        epoch,
                        phase,
                        n_targs,
+                       env_type,
                        save_name="epoch_stats.csv"):
         """
         Saves the loss and acc stats averaged over all episodes in the
@@ -991,26 +1065,28 @@ class ValidationRunner(Runner):
             phase: int
             n_targs: int
                 the number of targets that this data pertains to
+            env_type: str
             save_name: str
         """
         with torch.no_grad():
             _,losses,accs = get_loss_and_accs(
                 phase=phase,
-                actn_preds=data["logits"],
-                lang_preds=data["langs"],
-                actn_targs=data["actns"],
-                lang_targs=data["labels"],
+                actn_preds=data["actn_preds"],
+                lang_preds=data["lang_preds"],
+                actn_targs=data["actn_targs"],
+                lang_targs=data["lang_targs"],
                 drops=data["drops"],
                 n_targs=data["n_targs"],
                 n_items=data["n_items"],
                 prepender="",
-                loss_fxn=self.loss_fxn
+                loss_fxn=F.cross_entropy
             )
         inpts = {**losses, **accs}
-        df = pd.DataFrame(inpts)
+        df = pd.DataFrame({k:[v] for k,v in inpts.items()})
         df["epoch"] = epoch
         df["phase"] = self.phase
         df["n_targs"] = n_targs
+        df["env_type"] = env_type
         path = os.path.join(
             self.hyps["save_folder"],
             save_name
@@ -1080,13 +1156,19 @@ class ValidationRunner(Runner):
         ep_count = 0
         n_eps = try_key(self.hyps,"n_eval_eps",10)
         if self.hyps["exp_name"]=="test": n_eps = 1
+        with torch.no_grad():
+            for i,env_type in enumerate(self.env_types):
+                if env_type == self.env.env_type:
+                    idxs = model.cdtnl_idxs[i][None]
+                    break
+            cdtnl = model.cdtnl_lstm(idxs)
         while ep_count < n_eps:
             # Collect the state of the environment
             data["states"].append(state)
             t_state = torch.FloatTensor(state) # (C, H, W)
             # Get action prediction
             inpt = t_state[None].to(DEVICE)
-            actn_pred, lang_pred = model.step(inpt)
+            actn_pred, lang_pred = model.step(inpt, cdtnl)
             data["actn_preds"].append(actn_pred)
             # Batch Size is only ever 1
             # lang_pred: (1,1,L)

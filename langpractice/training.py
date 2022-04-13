@@ -391,7 +391,7 @@ class Trainer:
 
             ## Testing
             ##############
-            if self.hyps["exp_name"]=="test":
+            if self.hyps["exp_name"]=="test" and self.hyps["render"]:
                 grabs = data["grabs"]
                 print("train grabs:")
                 for row in range(len(drops)):
@@ -799,6 +799,7 @@ def hyps_error_catching(hyps):
             try_key(hyps,"langall",False):
         print("Potential conflict between lang_targs_only and langall")
         print("langall takes precedence. language will occur at all steps")
+    hyps["n_envs"] = len(hyps["env_types"])
     if hyps["batch_size"] % hyps["n_envs"] != 0:
         print(
             "Batch size of", hyps["batch_size"],
