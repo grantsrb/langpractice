@@ -831,6 +831,7 @@ class ValidationRunner(Runner):
             self.oracles[env_type] = globals()[otype](**temp_hyps)
         self.rand = np.random.default_rng(self.hyps["seed"])
         self.ep_idx = 0 # Used to track which data goes with which ep
+        self.loss_fxn = F.cross_entropy
 
     def run(self, model=None):
         """
@@ -1081,6 +1082,8 @@ class ValidationRunner(Runner):
                 prepender="",
                 loss_fxn=F.cross_entropy
             )
+        losses = {k:[v] for k,v in losses.items()}
+        accs = {k:[v] for k,v in accs.items()}
         inpts = {**losses, **accs}
         df = pd.DataFrame({k:[v] for k,v in inpts.items()})
         df["epoch"] = epoch
