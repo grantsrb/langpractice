@@ -259,6 +259,25 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         step after the last time step in the last loop (so there is
         no data overlap).
 
+    "dino": bool
+        determines if the transformer should attempt to train a memory
+        token using the DINO self-supervised training method.
+    "dino_weight": float
+        the weight of the dino loss relative to the simclr and total
+        losses.
+    "simclr": bool
+        determines if the transformer should attempt to train a memory
+        token using the SimCLR self-supervised training method.
+    "simclr_weight": float
+        the weight of the simclr loss relative to the dino and total
+        losses.
+    "augment": bool
+        if true, images are augmented before being used by the network
+    "smoothing": float
+        the label smoothing when calculating the cross entropy between
+        the student and teacher distributions. See pytorch documentation
+        about the cross_entropy loss for more details.
+
     "val_targ_range": list of ints (low, high) or None
         the range of target counts during the validation phase. both
         low and high are inclusive. only applies to gordongames
