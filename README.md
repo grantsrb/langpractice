@@ -246,6 +246,13 @@ Set values in a json and run `$ python3 main.py your_hyperparams_json.json` to u
         the "experience" length for a single rollout. This is the
         number of steps to take in the environment for a single row
         in the batch during data collection.
+    "max_ctx_len": null or int
+        if you would like to increase the context length for trainings
+        using the transformer class without increasing the back-
+        propagation context-window, you can set this value higher than
+        `seq_len`. This will make the context window larger without
+        backpropping through the increased number of tokens.
+
     "reset_trn_env": bool
         if true, the training environments are reset at the beginning
         of each collection. This ensures that the model never has to
