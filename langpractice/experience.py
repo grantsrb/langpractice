@@ -1028,7 +1028,11 @@ class ValidationRunner(Runner):
             mode="a"
         )
 
-    def collect_data(self, model, state, n_targs=None, to_cpu=False):
+    def collect_data(self, model,
+                           state,
+                           n_targs=None,
+                           to_cpu=False,
+                           incl_hs=False):
         """
         Performs the actual rollouts using the model
 
@@ -1069,6 +1073,11 @@ class ValidationRunner(Runner):
                         with targets over the course of the episode.
                         only relevant if using a gordongames
                         environment variant
+                    incl_hs: bool
+                        if true, the returned data includes the hidden
+                        states of the model under the keys h0, h1, ...
+                        h vectors are collected after the model processes
+                        the current state
         """
         data = {
             "states":[],
@@ -1085,6 +1094,7 @@ class ValidationRunner(Runner):
             "is_animating":[],
             "ep_idx":[],
         }
+        if incl_hs: self.record_hs(model=model,data=data)
         ep_count = 0
         n_eps = try_key(self.hyps,"n_eval_eps",10)
         if self.hyps["exp_name"]=="test": n_eps = 1
@@ -1096,6 +1106,7 @@ class ValidationRunner(Runner):
             inpt = t_state[None].to(DEVICE)
             actn_pred, lang_pred = model.step(inpt)
             data["actn_preds"].append(actn_pred)
+            if incl_hs: self.record_hs(model=model,data=data)
             if to_cpu: data["actn_preds"][-1] = actn_pred.cpu()
             # Batch Size is only ever 1
             # lang_pred: (1,1,L)
@@ -1127,13 +1138,12 @@ class ValidationRunner(Runner):
             )
             data["dones"].append(int(done))
             data["rews"].append(rew)
-            data["n_targs"].append(info["n_targs"])
-            data["n_items"].append(info["n_items"])
-            data["n_aligned"].append(info["n_aligned"])
             data["grabs"].append(info["grab"])
-            data["disp_targs"].append(info["disp_targs"])
-            data["is_animating"].append(info["is_animating"])
             data["ep_idx"].append(self.ep_idx)
+            keys = ["n_targs","n_items","n_aligned",
+                    "disp_targs","is_animating"]
+            for k in keys: data[k].append(info[k])
+
             if self.hyps["render"]:
                 self.env.render()
                 print("Use count words:", self.hyps["use_count_words"],
@@ -1150,15 +1160,12 @@ class ValidationRunner(Runner):
                 print(
                     "Lang (pred, targ):",
                     torch.argmax(lang.squeeze().cpu().data).item(),
-                    "--",
-                    targ
+                    "--", targ
                 )
                 if done:
                     print(
-                        "Actn (pred, targ):",
-                        info["n_items"],
-                        "--",
-                        info["n_targs"]
+                        "Actn (pred, targ):", info["n_items"],
+                        "--", info["n_targs"]
                     )
                     print()
                 time.sleep(1)
@@ -1171,14 +1178,36 @@ class ValidationRunner(Runner):
         data["actn_preds"] = torch.cat(data["actn_preds"], dim=0) #(S,A)
         data["lang_preds"] = torch.cat(data["lang_preds"], dim=1) #(N,S,L)
         data["actn_targs"] = torch.LongTensor(data["actn_targs"])
-        data["dones"] = torch.LongTensor(data["dones"])
-        data["grabs"] = torch.LongTensor(data["grabs"])
         data["rews"] = torch.FloatTensor(data["rews"])
-        data["n_targs"] = torch.LongTensor(data["n_targs"])
-        data["n_items"] = torch.LongTensor(data["n_items"])
-        data["n_aligned"] = torch.LongTensor(data["n_aligned"])
-        data["disp_targs"] = torch.LongTensor(data["disp_targs"])
-        data["is_animating"] = torch.LongTensor(data["is_animating"])
-        data["ep_idx"] = torch.LongTensor(data["ep_idx"])
+        keys = ["dones", "grabs", "n_targs", "n_items", "n_aligned",
+                "disp_targs", "is_animating", "ep_idx"]
+        for k in keys: data[k] = torch.LongTensor(data[k])
+        if incl_hs:
+            if hasattr(model, "hs"):
+                for i in range(len(model.hs)):
+                    k = "h"+str(i)
+                    data[k] = torch.cat(data[k], dim=0)
+            else: data["h0"] = torch.cat(data["h0"], dim=0)
         return data
 
+    def record_hs(self, model, data):
+        """
+        A function to assist in recording the h vectors when collecting
+        data. Operates in place
+
+        Args:
+            model: torch Module
+            data: dict
+        """
+        if "h0" not in data:
+            if hasattr(model, "hs"):
+                for i in range(len(model.hs)):
+                    data["h"+str(i)] = []
+            else:
+                data["h0"] = []
+            return
+        if hasattr(model, "hs"):
+            for i in range(len(model.hs)):
+                data["h"+str(i)].append(model.hs[i].cpu().detach().data)
+        else:
+            data["h0"].append(model.h.cpu().detach().data)
