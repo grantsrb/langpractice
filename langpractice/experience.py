@@ -1105,7 +1105,7 @@ class ValidationRunner(Runner):
                 lang = torch.stack(lang_pred, dim=0)
             # lang: (N,1,L) where N is number of lang models
             data["lang_preds"].append(lang)
-            if to_cpu: data["lang_preds"][-1] = actn_pred.cpu()
+            if to_cpu: data["lang_preds"][-1] = lang.cpu()
             if try_key(self.hyps, "val_max_actn", False):
                 actn = torch.argmax(actn_pred[0]).item()
             else:
