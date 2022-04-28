@@ -1023,7 +1023,7 @@ class ValidationRunner(Runner):
             mode="a"
         )
 
-    def collect_data(self, model, state, n_targs=None):
+    def collect_data(self, model, state, n_targs=None, to_cpu=False):
         """
         Performs the actual rollouts using the model
 
@@ -1032,6 +1032,9 @@ class ValidationRunner(Runner):
             state: ndarray ? I think
             n_targs: int
                 the number of targets for the environment to display
+            to_cpu: bool
+                if true, the langpreds and actnpreds are placed on
+                the cpu
         Returns:
             data: dict
                 keys: str
@@ -1088,6 +1091,7 @@ class ValidationRunner(Runner):
             inpt = t_state[None].to(DEVICE)
             actn_pred, lang_pred = model.step(inpt)
             data["actn_preds"].append(actn_pred)
+            if to_cpu: data["actn_preds"][-1] = actn_pred.cpu()
             # Batch Size is only ever 1
             # lang_pred: (1,1,L)
             if model.n_lang_denses == 1:
@@ -1096,6 +1100,7 @@ class ValidationRunner(Runner):
                 lang = torch.stack(lang_pred, dim=0)
             # lang: (N,1,L) where N is number of lang models
             data["lang_preds"].append(lang)
+            if to_cpu: data["lang_preds"][-1] = actn_pred.cpu()
             if try_key(self.hyps, "val_max_actn", False):
                 actn = torch.argmax(actn_pred[0]).item()
             else:
