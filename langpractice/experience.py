@@ -8,7 +8,7 @@ import numpy as np
 from langpractice.models import NullModel
 from langpractice.envs import SequentialEnvironment
 from langpractice.oracles import *
-from langpractice.utils.utils import try_key, sample_action, zipfian, get_lang_labels
+from langpractice.utils.utils import try_key, sample_action, zipfian, get_lang_labels, get_loss_and_accs
 from collections import deque
 
 if torch.cuda.is_available():
@@ -776,6 +776,7 @@ class ValidationRunner(Runner):
         self.oracle = globals()[self.hyps["oracle_type"]](**self.hyps)
         self.rand = np.random.default_rng(self.hyps["seed"])
         self.ep_idx = 0 # Used to track which data goes with which ep
+        self.loss_fxn = F.cross_entropy
 
     def run(self, model=None):
         """
@@ -858,6 +859,8 @@ class ValidationRunner(Runner):
                 data["grabs"],
                 data["is_animating"]
             )
+            data["lang_targs"] = lang_labels
+            data["drops"] = drops
             self.save_lang_data(
                 data, lang_labels, drops, epoch, self.phase
             )
@@ -975,11 +978,11 @@ class ValidationRunner(Runner):
         )
 
     def save_epoch_data(self,
-                       data,
-                       epoch,
-                       phase,
-                       n_targs,
-                       save_name="epoch_stats.csv"):
+                        data,
+                        epoch,
+                        phase,
+                        n_targs,
+                        save_name="epoch_stats.csv"):
         """
         Saves the loss and acc stats averaged over all episodes in the
         validation for a given n_target value. Saves the data as a
@@ -996,16 +999,18 @@ class ValidationRunner(Runner):
         with torch.no_grad():
             _,losses,accs = get_loss_and_accs(
                 phase=phase,
-                actn_preds=data["logits"],
-                lang_preds=data["langs"],
-                actn_targs=data["actns"],
-                lang_targs=data["labels"],
+                actn_preds=data["actn_preds"],
+                lang_preds=data["lang_preds"],
+                actn_targs=data["actn_targs"],
+                lang_targs=data["lang_targs"],
                 drops=data["drops"],
                 n_targs=data["n_targs"],
                 n_items=data["n_items"],
                 prepender="",
                 loss_fxn=self.loss_fxn
             )
+        losses = {k:[v] for k,v in losses.items()}
+        accs = {k:[v] for k,v in accs.items()}
         inpts = {**losses, **accs}
         df = pd.DataFrame(inpts)
         df["epoch"] = epoch
